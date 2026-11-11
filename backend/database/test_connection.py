@@ -16,21 +16,24 @@ def verify_system_connections():
     """
     Executes structural health checks on Supabase PostgreSQL & LangGraph Checkpointer.
     """
-    print("=" * 60)
+    print("=" * 70)
     print("StarEleven AI SaaS Project - System Diagnostics & Verification")
-    print("=" * 60)
+    print("=" * 70)
 
     # 1. Test Raw Database Connection
     print("\n[1/3] Testing Direct Supabase PostgreSQL Connection...")
+    db = None
     try:
         db = SessionLocal()
         result = db.execute(text("SELECT version();")).fetchone()
         print(f" SUCCESS: Connected to Supabase PostgreSQL.")
         print(f" Engine Version: {result[0]}")
-        db.close()
     except Exception as e:
         print(f" FAILED: Could not connect to Supabase database. Error: {e}")
         return False
+    finally:
+        if db:
+            db.close()
 
     # 2. Test SQLAlchemy Model Table Creation
     print("\n[2/3] Verifying Multi-Tenant Relational Schemas (Tables)...")

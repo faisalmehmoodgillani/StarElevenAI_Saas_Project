@@ -36,3 +36,8 @@ pypdf
 
 # Monitoring & Tracing
 langsmith
+
+
+# Security & Authentication
+cryptography
+pyjwt
