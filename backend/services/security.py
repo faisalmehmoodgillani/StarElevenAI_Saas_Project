@@ -4,14 +4,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+def _init_fernet() -> Fernet:
+    raw_key = os.getenv("ENCRYPTION_KEY")
+    if raw_key:
+        try:
+            return Fernet(raw_key.encode())
+        except Exception:
+            # .env key invalid hone ki surat mein fallback handle karta hai
+            pass
+    # Key missing ya invalid hone par development fallback key
+    return Fernet(Fernet.generate_key())
 
-if not ENCRYPTION_KEY:
-    # Development fallback
-    _DEV_KEY = Fernet.generate_key().decode()
-    ENCRYPTION_KEY = _DEV_KEY
-
-fernet = Fernet(ENCRYPTION_KEY.encode())
+fernet = _init_fernet()
 
 def encrypt_api_key(plain_key: str) -> str:
     """Encrypts plain text API keys prior to DB insertion."""
