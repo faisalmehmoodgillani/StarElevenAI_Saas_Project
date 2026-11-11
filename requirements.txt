@@ -1,0 +1,38 @@
+# Web Framework & Async Utilities
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+pydantic-settings
+python-multipart
+httpx
+
+# Database & Multi-Tenant Persistence
+sqlalchemy
+psycopg[binary,pool]
+langgraph-checkpoint-postgres
+
+# LangGraph & Core Agent Orchestration
+langgraph
+langchain
+langchain-core
+langchain-community
+
+# Multi-Provider LLM Integration
+langchain-google-genai
+langchain-groq
+langchain-openai
+langchain-anthropic
+
+# Model Context Protocol (MCP) & Tools
+mcp
+langchain-mcp-adapters
+nest-asyncio
+tavily-python
+
+# Document Processing & RAG Vectorstore
+chromadb
+pypdf
+
+# Monitoring & Tracing
+langsmith

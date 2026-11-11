@@ -1,3 +1,22 @@
+# StarElevenAI SaaS Project — Multi-Tenant Commercial AI Agent Platform
+
+Enterprise Multi-Tenant AI Agentic SaaS Platform built with FastAPI, LangGraph, Supabase PostgreSQL, Model Context Protocol (MCP), and Next.js UI styled in Cyber Dark Obsidian & Electric Lime (`#84CC16`).
+
+## System Architecture
+
+```text
+StarElevenAI_Saas_Project/
+├── backend/
+│   ├── agents/            # LangGraph multi-agent StateGraphs & Meta-Router
+│   ├── database/          # Supabase PostgreSQL connection engine, ORM, & LangGraph Checkpointer
+│   ├── mcp/               # Model Context Protocol (MCP) servers & clients
+│   ├── rag/               # Document ingestion & Vector Search
+│   ├── services/          # Multi-LLM provider factory & Auth services
+│   ├── tools/             # External Agent search & API tool wrappers
+│   ├── app.py             # FastAPI entry point & SSE streaming endpoints
+│   └── config.py          # System settings & LangSmith tracing configuration
+└── frontend/              # Next.js App Router Cyber Dark UI
+
 1. Final Modular Project Layout
 
 StarElevenAI_Saas_Project/
@@ -91,6 +110,7 @@ StarElevenAI_Saas_Project/
         │
         └── styles/                    # GLOBAL STYLES
             └── globals.css            # Tailwind Obsidian + Lime CSS
+```
 
 2. Terminal Creation Command (One-Click Setup)
 
