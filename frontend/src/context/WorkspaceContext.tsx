@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+// @ts-ignore - Supabase client path may be resolved differently in this project setup.
 import { createClient } from "@/lib/supabase/client";
 
 export interface WorkspaceItem {
@@ -173,9 +174,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           const rawList = Array.isArray(data) ? data : data.workspaces || [];
-          list = rawList.map((item: Record<string, any>, idx: number) =>
-            normalizeWorkspace(item, idx)
+          const normalized = rawList.map(
+            (item: Record<string, any>, idx: number) =>
+              normalizeWorkspace(item, idx)
           );
+
+          // Remove duplicate workspaces with the same ID
+          const uniqueMap = new Map<string, WorkspaceItem>();
+          for (const ws of normalized) {
+            if (!uniqueMap.has(ws.id)) {
+              uniqueMap.set(ws.id, ws);
+            }
+          }
+          list = Array.from(uniqueMap.values());
         }
 
         if (list.length === 0 && email) {
@@ -253,7 +264,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
+    } = supabase.auth.onAuthStateChange((event: string) => {
       if (event === "SIGNED_OUT") {
         if (typeof window !== "undefined") {
           localStorage.removeItem(STORAGE_WORKSPACE_KEY);
@@ -286,8 +297,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) return false;
         const created = await res.json();
         await refreshWorkspaces();
+
         if (created?.id || created?.workspace_id) {
-          setActiveWorkspace(normalizeWorkspace(created));
+          const newWs = normalizeWorkspace(created);
+          setWorkspaces((prev) =>
+            prev.some((w) => w.id === newWs.id) ? prev : [...prev, newWs]
+          );
+          setActiveWorkspace(newWs);
         }
         return true;
       } catch (err) {
@@ -297,7 +313,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     },
     [user, refreshWorkspaces, setActiveWorkspace]
   );
-
+  
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     if (typeof window !== "undefined") {

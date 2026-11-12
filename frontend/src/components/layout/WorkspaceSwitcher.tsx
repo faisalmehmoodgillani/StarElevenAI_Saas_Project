@@ -137,7 +137,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                 const isSelected = ws.id === activeWorkspace?.id;
                 return (
                   <button
-                    key={ws.id || ws.slug || `ws-${index}`}
+                    key={`${ws.id || ws.slug || "ws"}-${index}`}
                     type="button"
                     onClick={() => {
                       setActiveWorkspace(ws);
