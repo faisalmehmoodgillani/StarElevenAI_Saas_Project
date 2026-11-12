@@ -3,6 +3,7 @@
 .env.local
 *.env
 
+
 # Python Virtual Environments & Caches
 .venv/
 venv/
