@@ -24,6 +24,16 @@ export class ApiError extends Error {
   }
 }
 
+export interface SyncedWorkspaceResponse {
+  workspace_id: string;
+  workspace_name: string;
+  slug: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  is_new_workspace: boolean;
+}
+
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -54,7 +64,7 @@ async function apiRequest<T>(
             : JSON.stringify(errData.detail);
       }
     } catch {
-      // Fallback to default status message if response is not JSON
+      // Fallback to default status message
     }
     throw new ApiError(response.status, errorDetail);
   }
@@ -63,9 +73,6 @@ async function apiRequest<T>(
 }
 
 export const starElevenApi = {
-  /**
-   * Checks FastAPI backend server health status.
-   */
   async checkHealth(): Promise<{ status: string; project: string; version: string }> {
     const rootUrl = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
     const res = await fetch(`${rootUrl}/`);
@@ -75,9 +82,6 @@ export const starElevenApi = {
     return res.json();
   },
 
-  /**
-   * Registers a new tenant workspace and primary administrator in Supabase.
-   */
   async createWorkspace(
     payload: WorkspaceCreatePayload
   ): Promise<WorkspaceCreateResponse> {
@@ -88,19 +92,32 @@ export const starElevenApi = {
   },
 
   /**
-   * Fetches all active tenant workspaces for the Sidebar Workspace Switcher.
+   * Syncs a verified Supabase Auth user (Email OTP or Google OAuth) with PostgreSQL.
    */
-  async listWorkspaces(): Promise<WorkspaceSummary[]> {
+  async syncUserWorkspace(payload: {
+    email: string;
+    full_name?: string;
+    workspace_name?: string;
+    slug?: string;
+    supabase_user_id?: string;
+  }): Promise<SyncedWorkspaceResponse> {
+    return apiRequest<SyncedWorkspaceResponse>("/auth/sync-workspace", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Fetches ONLY workspaces belonging to the authenticated user's email.
+   */
+  async getUserWorkspaces(email: string): Promise<WorkspaceSummary[]> {
     const data = await apiRequest<{ workspaces: WorkspaceSummary[] }>(
-      "/workspaces",
+      `/auth/my-workspaces?email=${encodeURIComponent(email)}`,
       { method: "GET" }
     );
     return data.workspaces || [];
   },
 
-  /**
-   * Registers or updates an agent configuration with AES-256 encrypted API key storage.
-   */
   async registerAgentConfig(
     payload: AgentConfigPayload
   ): Promise<AgentConfigResponse> {
@@ -114,9 +131,6 @@ export const starElevenApi = {
     );
   },
 
-  /**
-   * Executes a synchronous multi-agent chat request (non-streaming fallback).
-   */
   async sendChatMessage(payload: ChatPayload): Promise<ChatSyncResponse> {
     return apiRequest<ChatSyncResponse>(
       "/chat",
@@ -128,9 +142,6 @@ export const starElevenApi = {
     );
   },
 
-  /**
-   * Loads persisted conversation history from Supabase LangGraph checkpointer.
-   */
   async getThreadHistory(
     workspaceId: string,
     threadId: string
@@ -140,49 +151,5 @@ export const starElevenApi = {
       { method: "GET" },
       workspaceId
     );
-  },
-
-  /**
-   * Requests a password recovery code for a workspace user email.
-   */
-  async requestPasswordReset(email: string): Promise<{ message: string }> {
-    try {
-      return await apiRequest<{ message: string }>("/auth/forgot-password", {
-        method: "POST",
-        body: JSON.stringify({ email }),
-      });
-    } catch (err: unknown) {
-      // Graceful fallback while backend auth email provider is in sandbox mode
-      if (err instanceof ApiError && err.status === 404) {
-        return { message: "Verification code dispatched to your workspace email." };
-      }
-      throw err;
-    }
-  },
-
-  /**
-   * Updates the authenticated user's password inside their active tenant workspace.
-   */
-  async changePassword(payload: {
-    workspace_id: string;
-    email: string;
-    current_password: string;
-    new_password: string;
-  }): Promise<{ message: string }> {
-    try {
-      return await apiRequest<{ message: string }>(
-        "/auth/change-password",
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        },
-        payload.workspace_id
-      );
-    } catch (err: unknown) {
-      if (err instanceof ApiError && err.status === 404) {
-        return { message: "Password updated successfully." };
-      }
-      throw err;
-    }
   },
 };

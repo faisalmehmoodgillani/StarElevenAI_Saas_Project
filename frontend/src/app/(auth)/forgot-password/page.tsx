@@ -15,7 +15,7 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react";
-import { ApiError, starElevenApi } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 type RecoveryStep = "request" | "verify" | "done";
 
@@ -41,16 +41,17 @@ export default function ForgotPasswordPage() {
 
     setSubmitting(true);
     try {
-      await starElevenApi.requestPasswordReset(email.trim());
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        email.trim()
+      );
+      if (resetError) throw resetError;
       setStep("verify");
     } catch (err: unknown) {
-      const msg =
-        err instanceof ApiError
-          ? err.detail
-          : err instanceof Error
+      setError(
+        err instanceof Error
           ? err.message
-          : "Could not send reset code.";
-      setError(msg);
+          : "Could not send password recovery email."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -60,8 +61,8 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setError(null);
 
-    if (otpCode.trim().length < 4) {
-      setError("Please enter the verification code sent to your email.");
+    if (otpCode.trim().length < 6) {
+      setError("Please enter the 6-digit recovery code from your email.");
       return;
     }
 
@@ -77,8 +78,25 @@ export default function ForgotPasswordPage() {
 
     setSubmitting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otpCode.trim(),
+        type: "recovery",
+      });
+      if (verifyError) throw verifyError;
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (updateError) throw updateError;
+
       setStep("done");
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Invalid recovery code or unable to update password."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -86,10 +104,8 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-surface-border bg-surface-card/90 p-7 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-brand/40 sm:p-8">
-      {/* Top Electric Lime Shimmer Line */}
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-brand to-transparent" />
 
-      {/* Step Progress Indicator */}
       <div className="mb-6 flex items-center justify-between">
         <Link
           href="/login"
@@ -99,14 +115,14 @@ export default function ForgotPasswordPage() {
           <span>Back to Login</span>
         </Link>
 
-        <div className="flex items-center gap-1.5 font-mono text-[11px] text-zinc-400">
+        <div className="flex items-center gap-1.5">
           <span
-            className={`h-2 w-6 rounded-full transition-all ${
+            className={`h-2 w-6 rounded-full ${
               step === "request" ? "bg-brand shadow-lime-sm" : "bg-brand/40"
             }`}
           />
           <span
-            className={`h-2 w-6 rounded-full transition-all ${
+            className={`h-2 w-6 rounded-full ${
               step === "verify"
                 ? "bg-brand shadow-lime-sm"
                 : step === "done"
@@ -115,14 +131,13 @@ export default function ForgotPasswordPage() {
             }`}
           />
           <span
-            className={`h-2 w-6 rounded-full transition-all ${
+            className={`h-2 w-6 rounded-full ${
               step === "done" ? "bg-brand shadow-lime-sm" : "bg-surface-border"
             }`}
           />
         </div>
       </div>
 
-      {/* Error Alert */}
       {error && (
         <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-status-error/40 bg-status-error/10 p-3.5 text-xs text-rose-200">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-status-error" />
@@ -130,7 +145,6 @@ export default function ForgotPasswordPage() {
         </div>
       )}
 
-      {/* STEP 1: Request Recovery Code */}
       {step === "request" && (
         <>
           <div className="mb-6">
@@ -141,8 +155,8 @@ export default function ForgotPasswordPage() {
               Reset your password
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-              Enter the email linked to your StarEleven workspace and we&apos;ll
-              send a one-time recovery code.
+              Enter your registered work email and Supabase Auth will dispatch a
+              6-digit OTP recovery code to your inbox.
             </p>
           </div>
 
@@ -152,14 +166,14 @@ export default function ForgotPasswordPage() {
                 Registered Work Email
               </label>
               <div className="group relative">
-                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 transition-colors group-focus-within:text-brand" />
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 group-focus-within:text-brand" />
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="founder@agency.com"
-                  className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-all focus:border-brand focus:ring-2 focus:ring-brand/20"
+                  className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
                 />
               </div>
             </div>
@@ -167,17 +181,17 @@ export default function ForgotPasswordPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="group flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-zinc-950 shadow-lime-glow transition-all duration-300 hover:bg-brand-glow active:scale-[0.99] disabled:opacity-60"
+              className="group flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-zinc-950 shadow-lime-glow transition-all hover:bg-brand-glow disabled:opacity-60"
             >
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Sending Recovery Code...</span>
+                  <span>Sending OTP to Email...</span>
                 </>
               ) : (
                 <>
-                  <span>Send Verification Code</span>
-                  <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+                  <span>Send Recovery OTP</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </>
               )}
             </button>
@@ -185,35 +199,35 @@ export default function ForgotPasswordPage() {
         </>
       )}
 
-      {/* STEP 2: Verify Code & Set New Password */}
       {step === "verify" && (
         <>
           <div className="mb-5">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-2.5 py-0.5 font-mono text-[11px] text-brand-glow">
               <ShieldCheck className="h-3.5 w-3.5 text-brand" />
-              <span>CODE SENT TO {email.toUpperCase()}</span>
+              <span>OTP SENT TO {email.toUpperCase()}</span>
             </div>
             <h2 className="mt-2 text-xl font-bold tracking-tight text-white">
-              Set a new password
+              Verify OTP & Set Password
             </h2>
             <p className="mt-1 text-xs text-zinc-400">
-              Enter the 6-digit recovery code and choose a strong password.
+              Check your email inbox (or spam folder) for the 6-digit recovery
+              code.
             </p>
           </div>
 
           <form onSubmit={handleResetPassword} className="space-y-3.5">
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-300">
-                Verification Code (OTP)
+                6-Digit Recovery OTP
               </label>
               <input
                 type="text"
                 required
                 maxLength={6}
                 value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value)}
-                placeholder="e.g. 849201"
-                className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg px-4 font-mono text-sm tracking-widest text-brand-glow placeholder-zinc-600 outline-none transition-all focus:border-brand focus:ring-2 focus:ring-brand/20"
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="123456"
+                className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg px-4 text-center font-mono text-base tracking-[0.35em] text-brand-glow placeholder-zinc-600 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
               />
             </div>
 
@@ -230,7 +244,7 @@ export default function ForgotPasswordPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Min. 6 characters"
-                  className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg pl-10 pr-11 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-all focus:border-brand focus:ring-2 focus:ring-brand/20"
+                  className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg pl-10 pr-11 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
                 />
                 <button
                   type="button"
@@ -259,7 +273,7 @@ export default function ForgotPasswordPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter new password"
-                  className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-all focus:border-brand focus:ring-2 focus:ring-brand/20"
+                  className="h-11 w-full rounded-xl border border-surface-border bg-surface-bg pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
                 />
               </div>
             </div>
@@ -267,17 +281,17 @@ export default function ForgotPasswordPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="group mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-zinc-950 shadow-lime-glow transition-all duration-300 hover:bg-brand-glow active:scale-[0.99] disabled:opacity-60"
+              className="group mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-zinc-950 shadow-lime-glow transition-all hover:bg-brand-glow disabled:opacity-60"
             >
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Updating Credentials...</span>
+                  <span>Verifying & Updating...</span>
                 </>
               ) : (
                 <>
                   <span>Reset Password</span>
-                  <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </>
               )}
             </button>
@@ -285,7 +299,6 @@ export default function ForgotPasswordPage() {
         </>
       )}
 
-      {/* STEP 3: Password Reset Success */}
       {step === "done" && (
         <div className="py-4 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-brand/40 bg-brand/15 text-brand shadow-lime-glow">
@@ -295,14 +308,14 @@ export default function ForgotPasswordPage() {
             Password Reset Complete
           </h3>
           <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-            Your workspace credentials for{" "}
-            <span className="font-semibold text-zinc-200">{email}</span> have
-            been updated securely.
+            Your Supabase Auth password for{" "}
+            <span className="font-semibold text-zinc-200">{email}</span> has
+            been updated.
           </p>
 
           <Link
             href="/login"
-            className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-zinc-950 shadow-lime-glow transition-all duration-300 hover:bg-brand-glow"
+            className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-zinc-950 shadow-lime-glow transition-all hover:bg-brand-glow"
           >
             <span>Return to Sign In</span>
             <ArrowRight className="h-4 w-4" />

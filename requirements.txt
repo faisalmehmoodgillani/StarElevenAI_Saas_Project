@@ -4,6 +4,7 @@ uvicorn[standard]
 python-dotenv
 pydantic
 pydantic-settings
+pydantic[email]
 python-multipart
 httpx
 
