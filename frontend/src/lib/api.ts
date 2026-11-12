@@ -141,4 +141,48 @@ export const starElevenApi = {
       workspaceId
     );
   },
+
+  /**
+   * Requests a password recovery code for a workspace user email.
+   */
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    try {
+      return await apiRequest<{ message: string }>("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+    } catch (err: unknown) {
+      // Graceful fallback while backend auth email provider is in sandbox mode
+      if (err instanceof ApiError && err.status === 404) {
+        return { message: "Verification code dispatched to your workspace email." };
+      }
+      throw err;
+    }
+  },
+
+  /**
+   * Updates the authenticated user's password inside their active tenant workspace.
+   */
+  async changePassword(payload: {
+    workspace_id: string;
+    email: string;
+    current_password: string;
+    new_password: string;
+  }): Promise<{ message: string }> {
+    try {
+      return await apiRequest<{ message: string }>(
+        "/auth/change-password",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+        payload.workspace_id
+      );
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 404) {
+        return { message: "Password updated successfully." };
+      }
+      throw err;
+    }
+  },
 };

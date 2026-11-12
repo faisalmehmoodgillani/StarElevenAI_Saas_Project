@@ -77,7 +77,6 @@ export default function LoginPage() {
         (w) => w.workspace_id === selectedWorkspaceId
       );
 
-      // Save active tenant session
       sessionService.saveSession({
         workspace_id:
           matchedWorkspace?.workspace_id ||
@@ -220,7 +219,12 @@ export default function LoginPage() {
             <label className="text-xs font-medium text-zinc-300">
               Password
             </label>
-            <span className="text-xs text-zinc-500">AES-256 Protected</span>
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-brand transition-colors hover:text-brand-glow hover:underline"
+            >
+              Forgot password?
+            </Link>
           </div>
           <div className="group relative">
             <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 transition-colors group-focus-within:text-brand" />
