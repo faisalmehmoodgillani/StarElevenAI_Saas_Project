@@ -7,6 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
+from fastapi import FastAPI, HTTPException, Depends
+from sqlalchemy.orm import Session
+from backend.database.connection import get_db
+from backend.services.tenant_service import (
+    create_workspace_with_admin,
+    create_agent_configuration,
+    list_workspaces,
+)
 
 # Ensure project root is on sys.path for reliable module resolution
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -187,3 +195,62 @@ def get_thread_history(workspace_id: str, thread_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {str(e)}")
+
+class WorkspaceCreateRequest(BaseModel):
+    workspace_name: str = Field(..., min_length=2, example="StarEleven Agency")
+    slug: str = Field(..., min_length=2, example="stareleven-agency")
+    admin_email: str = Field(..., example="admin@stareleven.ai")
+    admin_password: str = Field(..., min_length=6, example="StrongPass123!")
+    admin_full_name: Optional[str] = Field(default="Faisal Mehmood")
+
+
+class AgentConfigCreateRequest(BaseModel):
+    workspace_id: str = Field(..., description="Target workspace UUID")
+    agent_type: str = Field(..., example="crm_agent")
+    provider: str = Field(default="groq", example="groq")
+    model_name: str = Field(default="llama-3.3-70b-versatile", example="llama-3.3-70b-versatile")
+    api_key: Optional[str] = Field(default=None, description="Plain API key (will be AES-256 encrypted before DB save)")
+    settings_json: Optional[dict] = Field(default_factory=dict)
+
+
+@app.post("/api/v1/workspaces")
+def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(get_db)):
+    """Creates a new tenant workspace and admin user in Supabase."""
+    try:
+        return create_workspace_with_admin(
+            db=db,
+            workspace_name=payload.workspace_name,
+            slug=payload.slug,
+            admin_email=payload.admin_email,
+            admin_password=payload.admin_password,
+            admin_full_name=payload.admin_full_name,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create workspace: {str(e)}")
+
+
+@app.get("/api/v1/workspaces")
+def get_all_workspaces(db: Session = Depends(get_db)):
+    """Lists all workspaces from Supabase."""
+    return {"workspaces": list_workspaces(db)}
+
+
+@app.post("/api/v1/agents")
+def register_agent_config(payload: AgentConfigCreateRequest, db: Session = Depends(get_db)):
+    """Creates a workspace agent config with encrypted API key storage."""
+    try:
+        return create_agent_configuration(
+            db=db,
+            workspace_id=payload.workspace_id,
+            agent_type=payload.agent_type,
+            provider=payload.provider,
+            model_name=payload.model_name,
+            plain_api_key=payload.api_key,
+            settings_json=payload.settings_json,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create agent config: {str(e)}")
