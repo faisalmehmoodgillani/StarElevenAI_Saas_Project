@@ -28,6 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
+        suppressHydrationWarning
         className={`${jakarta.variable} ${jetbrains.variable} bg-surface-bg text-zinc-100 font-sans antialiased`}
       >
         {children}
