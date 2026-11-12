@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
@@ -10,10 +10,12 @@ import { supabase } from "@/lib/supabase";
 
 export default function OAuthCallbackPage() {
   const router = useRouter();
+  const syncStartedRef = useRef<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let active = true;
+    if (syncStartedRef.current) return;
+    syncStartedRef.current = true;
 
     async function completeOAuthLogin() {
       try {
@@ -38,8 +40,6 @@ export default function OAuthCallbackPage() {
           supabase_user_id: user.id,
         });
 
-        if (!active) return;
-
         sessionService.saveSession({
           workspace_id: synced.workspace_id,
           workspace_name: synced.workspace_name,
@@ -53,7 +53,6 @@ export default function OAuthCallbackPage() {
 
         router.replace("/chat");
       } catch (err: unknown) {
-        if (!active) return;
         setError(
           err instanceof Error
             ? err.message
@@ -63,9 +62,6 @@ export default function OAuthCallbackPage() {
     }
 
     completeOAuthLogin();
-    return () => {
-      active = false;
-    };
   }, [router]);
 
   return (

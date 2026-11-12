@@ -3,6 +3,7 @@ import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.database.connection import get_db
@@ -30,6 +31,23 @@ def _generate_unique_slug(db: Session, base_text: str) -> str:
     return candidate
 
 
+def _format_sync_response(
+    workspace: Workspace,
+    user: User,
+    fallback_name: Optional[str],
+    is_new: bool,
+) -> dict:
+    return {
+        "workspace_id": str(workspace.id),
+        "workspace_name": workspace.name,
+        "slug": workspace.slug,
+        "user_id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name or fallback_name or user.email.split("@")[0],
+        "is_new_workspace": is_new,
+    }
+
+
 @router.post("/sync-workspace")
 def sync_authenticated_user_workspace(
     payload: SyncWorkspacePayload,
@@ -50,15 +68,12 @@ def sync_authenticated_user_workspace(
         if not workspace:
             raise HTTPException(status_code=404, detail="Linked workspace not found.")
 
-        return {
-            "workspace_id": str(workspace.id),
-            "workspace_name": workspace.name,
-            "slug": workspace.slug,
-            "user_id": str(existing_user.id),
-            "email": existing_user.email,
-            "full_name": existing_user.full_name or payload.full_name,
-            "is_new_workspace": False,
-        }
+        return _format_sync_response(
+            workspace=workspace,
+            user=existing_user,
+            fallback_name=payload.full_name,
+            is_new=False,
+        )
 
     # Provision new tenant workspace for newly verified user
     ws_name = (
@@ -68,14 +83,6 @@ def sync_authenticated_user_workspace(
     )
     ws_slug = _generate_unique_slug(db, payload.slug or ws_name)
 
-    new_workspace = Workspace(
-        id=uuid.uuid4(),
-        name=ws_name,
-        slug=ws_slug,
-    )
-    db.add(new_workspace)
-    db.flush()
-
     user_uuid = uuid.uuid4()
     if payload.supabase_user_id:
         try:
@@ -83,27 +90,56 @@ def sync_authenticated_user_workspace(
         except ValueError:
             pass
 
-    new_user = User(
-        id=user_uuid,
-        workspace_id=new_workspace.id,
-        email=payload.email,
-        full_name=payload.full_name or payload.email.split("@")[0],
-        role="admin",
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_workspace)
-    db.refresh(new_user)
+    try:
+        new_workspace = Workspace(
+            id=uuid.uuid4(),
+            name=ws_name,
+            slug=ws_slug,
+            is_active=True,
+        )
+        db.add(new_workspace)
+        db.flush()
 
-    return {
-        "workspace_id": str(new_workspace.id),
-        "workspace_name": new_workspace.name,
-        "slug": new_workspace.slug,
-        "user_id": str(new_user.id),
-        "email": new_user.email,
-        "full_name": new_user.full_name,
-        "is_new_workspace": True,
-    }
+        new_user = User(
+            id=user_uuid,
+            workspace_id=new_workspace.id,
+            email=payload.email,
+            hashed_password="SUPABASE_AUTH_MANAGED",
+            full_name=payload.full_name or payload.email.split("@")[0],
+            role="admin",
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_workspace)
+        db.refresh(new_user)
+
+        return _format_sync_response(
+            workspace=new_workspace,
+            user=new_user,
+            fallback_name=payload.full_name,
+            is_new=True,
+        )
+    except IntegrityError:
+        # Handle concurrent duplicate OAuth callback request safely
+        db.rollback()
+        existing_user = db.query(User).filter(User.email == payload.email).first()
+        if existing_user:
+            workspace = (
+                db.query(Workspace)
+                .filter(Workspace.id == existing_user.workspace_id)
+                .first()
+            )
+            if workspace:
+                return _format_sync_response(
+                    workspace=workspace,
+                    user=existing_user,
+                    fallback_name=payload.full_name,
+                    is_new=False,
+                )
+        raise HTTPException(
+            status_code=409,
+            detail="Workspace sync conflict. Please refresh and sign in again.",
+        )
 
 
 @router.get("/my-workspaces")
