@@ -1,342 +1,182 @@
-# 🌟 StarEleven AI SaaS - Enterprise Multi-Tenant AI Agent Platform
+# StarEleven AI SaaS — Enterprise Multi-Tenant AI Agent Platform
 
-StarEleven AI SaaS is a production-grade, multi-tenant B2B AI Agent application built with a high-performance modern tech stack: **FastAPI** backend engine, **LangGraph** workflow agent orchestrator, **Supabase PostgreSQL** for persistent memory state, **Model Context Protocol (MCP)** for tool execution, and **Next.js** for the frontend UI.
+**StarEleven AI SaaS** is an enterprise-grade, multi-tenant Business-to-Business (B2B) AI Agent platform designed to empower organizations with autonomous, specialized AI workflows. Built on a modern, modular full-stack architecture, the platform combines a **FastAPI** backend, **LangGraph** multi-agent orchestration, **Supabase PostgreSQL** persistent memory, **Model Context Protocol (MCP)** readiness, and a **Next.js** web application.
 
-The platform features workspace-level dynamic multi-LLM provider switching (**Google Gemini, Groq, OpenAI, Anthropic, OpenRouter**), end-to-end secret key encryption, and strict database-level tenant isolation using PostgreSQL **Row Level Security (RLS)**.
-
----
-
-## 📐 Architecture Overview
-
-```text
-                               +-----------------------------+
-                               |     Next.js Frontend UI     |
-                               | (App Router / Tailwind CSS) |
-                               +--------------+--------------+
-                                              |
-                                              v (REST API / SSE Streaming)
-                               +--------------+--------------+
-                               |       FastAPI Backend       |
-                               +--------------+--------------+
-                                              |
-      +---------------------------------------+---------------------------------------+
-      |                                       |                                       |
-      v                                       v                                       v
-+-------------------+               +-------------------+                   +-------------------+
-| Dynamic LLM       |               | LangGraph Engine  |                   | Security Vault    |
-| Factory Service   |               | (PostgresSaver &  |                   | (AES-256 Fernet   |
-| (Gemini/Groq/     |               | State Persistence)|                   | Secret Storage)   |
-| OpenAI/Anthropic) |               +---------+---------+                   +-------------------+
-+-------------------+                         |
-                                              v
-                               +--------------+--------------+
-                               | Supabase PostgreSQL Database|
-                               | (Session Pooler / Port 6543 |
-                               |  Row Level Security (RLS)   |
-                               +-----------------------------+
-```
+The platform enables businesses to manage isolated workspaces, dynamically switch across leading Large Language Model (LLM) providers, protect sensitive credentials with enterprise encryption, and deploy specialized AI agents for live research, Customer Relationship Management (CRM), and conversational automation.
 
 ---
 
-## 🔥 Key Enterprise Features
+## Step 1: Project Vision & Core Capabilities
 
-- 🏢 **Multi-Tenant Data Isolation**: Enforced at the PostgreSQL database layer via Supabase **Row Level Security (RLS)** policies scoped by `workspace_id`.
-- 🔐 **AES-256 Key Vault Encryption**: End-to-end symmetric encryption (`cryptography` Fernet) for all user API keys, external tools, and system secrets stored in the database.
-- 🤖 **Dynamic Multi-LLM Provider Factory**: Instant workspace-level or request-level model switching across **Google Gemini**, **Groq**, **OpenAI**, **Anthropic**, and **OpenRouter**.
-- 🔄 **LangGraph State Checkpointer**: Seamless session persistence and state checkpointer backed by `psycopg_pool` connection management.
-- 🧪 **Automated System Verification Suite**: Integrated 3-stage diagnostic runner (`backend/database/test_connection.py`) to verify engine health, ORM schema synchronization, and checkpointer viability.
+StarEleven AI SaaS is engineered to solve real-world enterprise automation needs by separating business logic, security, memory, and agent intelligence into clean, maintainable layers:
 
----
-
-## 📁 Repository Directory Structure
-
-```text
-StarElevenAI_Saas_Project/
-├── backend/
-│   ├── app.py                     # FastAPI application entrypoint & API routes
-│   ├── config.py                  # Environment settings & LangSmith tracing config
-│   ├── database/
-│   │   ├── __init__.py
-│   │   ├── connection.py          # SQLAlchemy Session Engine (psycopg dialect auto-routing)
-│   │   ├── models.py              # Multi-tenant ORM Schemas (Workspace, User, AgentConfig)
-│   │   ├── checkpointer.py        # LangGraph PostgresSaver checkpointer setup
-│   │   └── test_connection.py     # System diagnostic verification script
-│   ├── agents/
-│   │   ├── __init__.py
-│   │   ├── base.py                # Agent state definitions & Pydantic models
-│   │   ├── router.py              # Central Meta-Agent intent router workflow
-│   │   └── modules/
-│   │       ├── __init__.py
-│   │       ├── research_agent.py  # Deep research & web tool agent node
-│   │       └── crm_agent.py       # Lead qualification & CRM agent node
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── security.py            # AES-256 Fernet key encryption & decryption service
-│   │   ├── llm_factory.py         # Dynamic Multi-LLM provider instantiation service
-│   │   └── auth_service.py        # JWT auth & tenant validation service
-│   ├── mcp/                       # Model Context Protocol integration
-│   │   ├── client.py              # MCP client manager
-│   │   └── configs/mcp_config.json
-│   ├── tools/                     # System tools (Web search, DB query tools)
-│   └── rag/                       # Document ingestion & vectorstore services
-├── frontend/                      # Next.js App Router Frontend UI
-├── .env.example                   # Environment configuration template
-├── .gitignore                     # Version control exclusions
-├── requirements.txt               # Backend Python dependencies
-└── README.md                      # Project documentation
-```
+* **Strict Multi-Tenant Workspace Isolation:** Every organization operates inside an isolated workspace (`workspace_id`), enforced at the PostgreSQL database level using Supabase **Row Level Security (RLS)** policies.
+* **Enterprise Key Vault Security:** All workspace-level third-party API keys and secrets are encrypted at rest using **AES-256 Fernet symmetric encryption** and decrypted dynamically only during active model execution.
+* **Dynamic Multi-LLM Provider Factory:** Workspaces and individual requests can seamlessly switch between **Google Gemini**, **Groq**, **OpenAI**, **Anthropic**, and **OpenRouter** without modifying core agent workflows.
+* **Intelligent Meta-Agent Routing:** Powered by **LangGraph**, a central intent router evaluates incoming user queries and delegates tasks to specialized sub-agents (General Assistant, Deep Research Agent, or CRM Workspace Agent).
+* **Persistent Thread Memory & Checkpointing:** Full conversational state and multi-turn thread history are persisted in PostgreSQL using LangGraph's `PostgresSaver` checkpointer, allowing users to resume conversations reliably across sessions.
+* **Real-Time Streaming & Observability:** Supports Server-Sent Events (SSE) for real-time token streaming to the frontend alongside end-to-end execution tracing via **LangSmith**.
 
 ---
 
-## 🛠️ Complete Setup & Installation Guide
+## Step 2: System Architecture Overview
 
-### 1. Prerequisites
-- **Python**: Version 3.11+
-- **Node.js**: Version 18+
-- **Supabase Account**: Managed PostgreSQL instance with IPv4 pooler enabled
+The platform is structured into four decoupled architectural tiers:
 
-### 2. Environment Setup
-Clone the repository and initialize the Python virtual environment:
-
-```bash
-git clone https://github.com/faisalmehmoodgillani/StarElevenAI_Saas_Project.git
-cd StarElevenAI_Saas_Project
-
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# On Windows:
-venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-
-# Install backend dependencies
-pip install -r requirements.txt
-```
-
-### 3. Environment Variable Configuration (`.env`)
-Create a `.env` file in the root directory based on `.env.example`:
-
-```env
-# Supabase PostgreSQL Connection String (Port 6543 Session Pooler)
-# Note: Special characters in passwords must be percent-encoded (e.g., ! becomes %21)
-DATABASE_URL="postgresql://postgres.[PROJECT-REF]:[ENCODED-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?sslmode=require"
-
-# Key Encryption Secret (Generate via Fernet.generate_key())
-ENCRYPTION_KEY="your-32-byte-base64-fernet-key"
-
-# Default System LLM Provider API Keys
-GROQ_API_KEY="gsk_..."
-GOOGLE_API_KEY="AIzaSy..."
-OPENAI_API_KEY="sk-..."
-ANTHROPIC_API_KEY="sk-ant-..."
-OPENROUTER_API_KEY="sk-or-..."
-
-# JWT Security Credentials
-JWT_SECRET="super-secret-jwt-key"
-JWT_ALGORITHM="HS256"
-
-# LangSmith Tracing Setup
-LANGSMITH_TRACING=true
-LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
-LANGSMITH_API_KEY="lsv2_pt_..."
-LANGSMITH_PROJECT="StarElevenAI_Saas_Project"
-```
+1. **Presentation Layer (Next.js Frontend):** A modular App Router dashboard supporting authentication, real-time streaming chat, agent configuration, CRM views, analytics, and subscription management.
+2. **API & Schema Gateway (FastAPI Modular Routers):** A slim application entrypoint backed by versioned `APIRouter` modules and strict Pydantic request/response schemas.
+3. **Agentic Orchestration & Services Layer (LangGraph + Core Services):** Houses the Meta-Agent intent router, specialized sub-agent nodes, external tools, AES-256 security vault, and dynamic multi-LLM factory.
+4. **Persistence & Security Layer (Supabase PostgreSQL):** Manages multi-tenant relational tables (`Workspaces`, `Users`, `AgentConfigs`) alongside LangGraph checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`).
 
 ---
 
-## 🧪 System Diagnostics Execution
+## Step 3: Development Progress — Completed & Verified Modules
 
-To verify database engine connectivity, table synchronization, and state saver checkpointer status, run the test script:
+Significant foundational and core backend milestones have already been built, integrated, and verified through automated diagnostics and live API testing:
 
-```bash
-python backend/database/test_connection.py
-```
-
-### Successful Output Example:
-```text
-============================================================
-StarEleven AI SaaS Project - System Diagnostics & Verification
-============================================================
-
-[1/3] Testing Direct Supabase PostgreSQL Connection...
- SUCCESS: Connected to Supabase PostgreSQL.
- Engine Version: PostgreSQL 15.x ...
-
-[2/3] Verifying Multi-Tenant Relational Schemas (Tables)...
- SUCCESS: Database schemas verified and synced (Workspaces, Users, AgentConfigs).
-
-[3/3] Testing LangGraph State Persistence Checkpointer...
- SUCCESS: LangGraph PostgresSaver checkpointer initialized and table structure setup completed.
-
-============================================================
-ALL SYSTEM CONNECTIONS VERIFIED SUCCESSFULLY! READY FOR DEVELOPMENT.
-============================================================
-```
+* **Phase 1 — Project Root & Environment Configuration (Completed):** Standardized dependency management, environment variable templates, and version control exclusions.
+* **Phase 2 — Database & Persistence Engine (Completed & Verified):** Configured Supabase PostgreSQL IPv4 Session Pooler connectivity, multi-tenant SQLAlchemy ORM schemas, and LangGraph `PostgresSaver` state checkpointer. Verified via a 3-stage automated diagnostic suite.
+* **Phase 3 — Security Vault & Dynamic LLM Factory (Completed & Verified):** Built and tested AES-256 Fernet encryption/decryption services with fallback sanitization, plus dynamic multi-provider LLM instantiation.
+* **Phase 4 — Tools & Multi-Agent LangGraph Workflow (Completed & Verified):** Implemented live web search tooling (Tavily), multi-tenant workspace database lookup tools, shared agent state definitions, specialized Research and CRM sub-agents, and the central Meta-Agent intent router.
+* **Phase 5 — FastAPI Server & Modular API Refactoring (Completed & Tested):** Verified live chat, streaming, and thread history endpoints via Swagger UI, and structured the API into clean, modular routers and schemas.
+* **Phase 6 — Frontend Package Initialization (Initialized):** Configured `frontend/package.json` with core Next.js, React, TypeScript, Tailwind CSS, and Supabase client dependencies.
 
 ---
 
-## 🔒 Security Architecture & RLS Enforcements
+## Step 4: Complete Folder & File Directory Breakdown
 
-### 1. Row Level Security (RLS) Policy
-To enforce multi-tenant workspace isolation at the PostgreSQL layer, run the following SQL policy in Supabase SQL Editor:
+Below is a comprehensive breakdown of every folder and file created in the repository, detailing its architectural role and current implementation status.
 
-```sql
--- Enable Row Level Security on core application tables
-ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
-ALTER TABLE agent_configs ENABLE ROW LEVEL SECURITY;
+### A. Root Directory (`StarElevenAI_Saas_Project/`)
 
--- Enforce Workspace Isolation
-CREATE POLICY workspace_isolation_policy ON agent_configs
-    FOR ALL
-    USING (workspace_id = current_setting('app.current_workspace_id', true)::uuid);
-```
-
-### 2. Secret Key Encryption Strategy
-API keys are encrypted using AES-256 prior to database persistence and decrypted dynamically at runtime:
-
-- **Write Path**: Frontend -> FastAPI -> `encrypt_api_key(plain_key)` -> Stored in Supabase `agent_configs.encrypted_api_key`.
-- **Execution Path**: DB Query -> `decrypt_api_key(encrypted_key)` -> `llm_factory.py` -> LangChain Provider Instance.
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `README.md` | **Completed** | Master project documentation covering architecture, development milestones, directory structure, and roadmap. |
+| `.env.example` | **Completed** | Blueprint of all required environment variables for database pooling, encryption keys, LLM providers, search tools, JWT auth, and LangSmith tracing. |
+| `.gitignore` | **Completed** | Protects sensitive files (`.env`), virtual environments, Python build artifacts, and frontend dependencies from accidental exposure. |
+| `requirements.txt` | **Completed** | Defines all Python backend packages including FastAPI, Uvicorn, LangGraph, LangChain, SQLAlchemy, Psycopg, Cryptography, and Tavily. |
 
 ---
 
-## 🚀 Running the Application Servers
+### B. Backend Core & Configuration (`backend/`)
 
-### Start FastAPI Backend:
-```bash
-uvicorn backend.app:app --reload --port 8000
-```
-- Interactive OpenAPI Docs: `http://localhost:8000/docs`
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/__init__.py` | **Completed** | Initializes `backend` as a structured Python package for clean cross-module imports. |
+| `backend/app.py` | **Completed & Tested** | Slim FastAPI application entrypoint that initializes the web server, configures CORS policies, and mounts versioned API routers. |
+| `backend/config.py` | **Completed** | Centralizes application configuration and activates LangSmith observability and tracing parameters. |
 
-### Start Next.js Frontend UI:
-```bash
-cd frontend
-npm install
-npm run dev
-```
-- Dashboard Interface: `http://localhost:3000`
+---
 
+### C. Database & State Persistence Layer (`backend/database/`)
 
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/database/__init__.py` | **Completed** | Package initializer exposing database session utilities and models. |
+| `backend/database/connection.py` | **Completed & Verified** | Configures the SQLAlchemy engine and session factory for Supabase PostgreSQL (Port 6543 Session Pooler) with `psycopg` dialect routing and SSL security. |
+| `backend/database/models.py` | **Completed & Verified** | Defines multi-tenant relational database tables (`Workspaces`, `Users`, and `AgentConfigs`) with UUID primary keys and tenant isolation relationships. |
+| `backend/database/checkpointer.py` | **Completed & Verified** | Initializes LangGraph's `PostgresSaver` backed by PostgreSQL connection pooling to automatically persist conversation checkpoints and thread state. |
+| `backend/database/test_connection.py` | **Completed & Verified** | Automated 3-step system diagnostic runner that verifies database connectivity, ORM table synchronization, and checkpointer migration readiness. |
 
-<!-- 1. Final Modular Project Layout
+---
 
-StarElevenAI_Saas_Project/
-├── .env.example                       # API Keys & DB Config Template
-├── .gitignore                         # Git exclusion rules
-├── requirements.txt                   # Backend dependencies
-├── README.md                          # Main project documentation
-│
-├── backend/                           # FASTAPI BACKEND CORE
-│   ├── app.py                         # Main FastAPI app & SSE streaming endpoints
-│   ├── config.py                      # System settings & LangSmith tracing init
-│   │
-│   ├── database/                      # DATABASE & STATE PERSISTENCE
-│   │   ├── __init__.py
-│   │   ├── connection.py              # Supabase PostgreSQL engine
-│   │   ├── models.py                  # SQLAlchemy schemas (Workspaces, Users, Agents)
-│   │   └── checkpointer.py            # LangGraph Postgres State Saver
-│   │
-│   ├── agents/                        # MULTI-AGENT ARCHITECTURE
-│   │   ├── __init__.py
-│   │   ├── base.py                    # Base agent state & graph templates
-│   │   ├── router.py                  # Meta-Agent / Central Intent Router
-│   │   └── modules/                   # Specialized Sub-Agents
-│   │       ├── __init__.py
-│   │       ├── research_agent.py      # Web & RAG Deep Research Agent
-│   │       └── crm_agent.py           # Lead Qualification & Pipeline Agent
-│   │
-│   ├── mcp/                           # MODEL CONTEXT PROTOCOL (MCP) INTEGRATION
-│   │   ├── __init__.py
-│   │   ├── client.py                  # MCP Client Manager & Tool Sync
-│   │   └── configs/
-│   │       └── mcp_config.json        # MCP Server endpoints configuration
-│   │
-│   ├── tools/                         # AGENT TOOLS & UTILITIES
-│   │   ├── __init__.py
-│   │   ├── web_search.py              # Tavily web search tool integration
-│   │   └── db_tools.py                # Business DB lookup tools
-│   │
-│   ├── rag/                           # RETRIEVAL AUGMENTED GENERATION
-│   │   ├── __init__.py
-│   │   ├── ingestion.py               # Document loader & recursive chunker
-│   │   └── vectorstore.py             # ChromaDB / Supabase pgvector store
-│   │
-│   └── services/                      # SAAS BUSINESS LOGIC
-│       ├── __init__.py
-│       ├── auth_service.py            # JWT / Supabase Auth validator
-│       └── tenant_service.py          # Multi-tenant workspace data isolation (`tenant_id`)
-│
-└── frontend/                          # NEXT.JS / REACT FRONTEND UI
-    ├── package.json                   # NPM dependencies
-    ├── next.config.js                 # Framework configuration
-    ├── tailwind.config.js             # Electric Lime (`#84CC16`) UI Theme
-    ├── .env.local                     # Local Frontend Env Variables
-    │
-    ├── public/                        # Static assets & logos
-    │   └── logo.svg
-    │
-    └── src/
-        ├── app/                       # NEXT.JS APP ROUTER
-        │   ├── layout.tsx             # Root layout & theme providers
-        │   ├── page.tsx               # Landing page / Auth redirect
-        │   │
-        │   ├── (auth)/                # AUTHENTICATION FLOW
-        │   │   ├── login/page.tsx     # User & Workspace Login
-        │   │   └── register/page.tsx  # Workspace Signup / Onboarding
-        │   │
-        │   └── (dashboard)/           # SAAS DASHBOARD CORE
-        │       ├── layout.tsx         # App Shell (Sidebar, Workspace Switcher)
-        │       ├── page.tsx           # Dashboard Overview & Stats
-        │       ├── chat/page.tsx      # Real-time Multi-Agent SSE Streaming Chat
-        │       ├── agents/page.tsx    # Agents Catalog & Studio Builder
-        │       ├── crm/page.tsx       # Lead Pipeline & Customer Management
-        │       ├── analytics/page.tsx # Token Usage, Costs & Agent Logs
-        │       ├── pricing/page.tsx   # SaaS Subscription & Pricing Plans
-        │       └── settings/page.tsx  # Workspace & API Key Vault
-        │
-        ├── components/                # UI COMPONENTS
-        │   ├── ui/                    # Electric Lime Buttons, Cards, Badges
-        │   ├── layout/                # Sidebar, Header, Workspace Switcher
-        │   └── chat/                  # Message Bubbles, Tool Indicators, Streaming Cursor
-        │
-        ├── lib/                       # API CLIENTS & SSE UTILS
-        │   ├── api.ts                 # Axios / Fetch HTTP Client
-        │   ├── sse-stream.ts          # Server-Sent Events Reader
-        │   └── supabase.ts            # Supabase Auth Client
-        │
-        ├── types/                     # TYPESCRIPT SCHEMAS
-        │   ├── agent.ts               # Agent state definitions
-        │   ├── chat.ts                # Message & event types
-        │   └── tenant.ts              # Workspace & Tenant schemas
-        │
-        └── styles/                    # GLOBAL STYLES
-            └── globals.css            # Tailwind Obsidian + Lime CSS
-```
+### D. Enterprise Security & LLM Services (`backend/services/`)
 
-2. Terminal Creation Command (One-Click Setup)
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/services/__init__.py` | **Completed** | Package initializer for core backend business services. |
+| `backend/services/security.py` | **Completed & Verified** | Implements the AES-256 Fernet encryption vault to encrypt plain-text API keys before database storage and decrypt them safely at runtime. |
+| `backend/services/llm_factory.py` | **Completed & Verified** | Dynamic Multi-LLM factory service that instantiates chat models across Google Gemini, Groq, OpenAI, Anthropic, and OpenRouter based on workspace settings. |
+| `backend/services/auth_service.py` | **Scaffolded (Upcoming)** | Dedicated service for JWT authentication token generation, verification, and tenant membership validation. |
 
-# 1. Sabhi Directories Create Karein
-mkdir -p backend/database backend/agents/modules backend/mcp/configs backend/tools backend/rag backend/services frontend/public frontend/src/app/\(auth\)/login frontend/src/app/\(auth\)/register frontend/src/app/\(dashboard\)/chat frontend/src/app/\(dashboard\)/agents frontend/src/app/\(dashboard\)/crm frontend/src/app/\(dashboard\)/analytics frontend/src/app/\(dashboard\)/pricing frontend/src/app/\(dashboard\)/settings frontend/src/components/ui frontend/src/components/layout frontend/src/components/chat frontend/src/lib frontend/src/types frontend/src/styles
+---
 
-# 2. Root Files Create Karein
-touch .env.example .gitignore requirements.txt README.md
+### E. Agent Tools Layer (`backend/tools/`)
 
-# 3. Backend Files Create Karein
-touch backend/app.py backend/config.py
-touch backend/database/__init__.py backend/database/connection.py backend/database/models.py backend/database/checkpointer.py
-touch backend/agents/__init__.py backend/agents/base.py backend/agents/router.py
-touch backend/agents/modules/__init__.py backend/agents/modules/research_agent.py backend/agents/modules/crm_agent.py
-touch backend/mcp/__init__.py backend/mcp/client.py backend/mcp/configs/mcp_config.json
-touch backend/tools/__init__.py backend/tools/web_search.py backend/tools/db_tools.py
-touch backend/rag/__init__.py backend/rag/ingestion.py backend/rag/vectorstore.py
-touch backend/services/__init__.py backend/services/auth_service.py backend/services/tenant_service.py
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/tools/__init__.py` | **Completed** | Package initializer for LangChain/LangGraph agent tools. |
+| `backend/tools/web_search.py` | **Completed & Verified** | Live web research tool powered by the Tavily API, enabling agents to retrieve current market trends, competitor data, and external facts. |
+| `backend/tools/db_lookup.py` | **Completed & Verified** | Multi-tenant database lookup tool enabling the CRM agent to inspect workspace summaries and active agent configurations safely within tenant boundaries. |
 
-# 4. Frontend Files Create Karein
-touch frontend/package.json frontend/next.config.js frontend/tailwind.config.js frontend/.env.local
-touch frontend/src/app/layout.tsx frontend/src/app/page.tsx
-touch frontend/src/app/\(auth\)/login/page.tsx frontend/src/app/\(auth\)/register/page.tsx
-touch frontend/src/app/\(dashboard\)/layout.tsx frontend/src/app/\(dashboard\)/page.tsx frontend/src/app/\(dashboard\)/chat/page.tsx frontend/src/app/\(dashboard\)/agents/page.tsx frontend/src/app/\(dashboard\)/crm/page.tsx frontend/src/app/\(dashboard\)/analytics/page.tsx frontend/src/app/\(dashboard\)/pricing/page.tsx frontend/src/app/\(dashboard\)/settings/page.tsx
-touch frontend/src/lib/api.ts frontend/src/lib/sse-stream.ts frontend/src/lib/supabase.ts
-touch frontend/src/types/agent.ts frontend/src/types/chat.ts frontend/src/types/tenant.ts
-touch frontend/src/styles/globals.css -->
+---
+
+### F. Multi-Agent Orchestration Layer (`backend/agents/`)
+
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/agents/__init__.py` | **Completed** | Package initializer for the multi-agent workflow engine. |
+| `backend/agents/base.py` | **Completed & Verified** | Defines the shared LangGraph `AgentState` and Pydantic structured routing schemas used to pass context and routing decisions across nodes. |
+| `backend/agents/router.py` | **Completed & Verified** | Central Meta-Agent intent router compiled with LangGraph `StateGraph` and `PostgresSaver`, classifying user intent and routing execution to the right sub-agent. |
+| `backend/agents/modules/__init__.py` | **Completed** | Package initializer for specialized sub-agent modules. |
+| `backend/agents/modules/research_agent.py` | **Completed & Verified** | Specialized Research Agent node equipped with web search capabilities to synthesize factual, up-to-date answers. |
+| `backend/agents/modules/crm_agent.py` | **Completed & Verified** | Specialized CRM & Workspace Agent node equipped with database lookup tools to handle tenant-specific workspace and lead queries. |
+
+---
+
+### G. Modular API Routers & Data Schemas (`backend/schemas/` & `backend/api/`)
+
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/schemas/__init__.py` | **Completed** | Package initializer for Pydantic validation contracts. |
+| `backend/schemas/chat_schema.py` | **Completed** | Request and response schemas for standard chat, SSE streaming payloads, and conversation thread history. |
+| `backend/schemas/workspace_schema.py` | **Completed** | Validation contracts for creating, updating, and listing multi-tenant workspaces. |
+| `backend/schemas/agent_schema.py` | **Completed** | Validation contracts for configuring workspace AI agents, selecting LLM providers, and submitting API keys. |
+| `backend/api/__init__.py` | **Completed** | Root API package initializer. |
+| `backend/api/v1/__init__.py` | **Completed** | Version 1 central router aggregator that combines all domain sub-routers for `backend/app.py`. |
+| `backend/api/v1/chat_routes.py` | **Completed** | Modular endpoints handling synchronous chat execution, real-time SSE token streaming, and thread history retrieval. |
+| `backend/api/v1/workspace_routes.py` | **Completed** | Modular endpoints for multi-tenant workspace creation and workspace directory retrieval. |
+| `backend/api/v1/agent_routes.py` | **Completed** | Modular endpoints for managing agent configurations and encrypted provider credentials per workspace. |
+
+---
+
+### H. Model Context Protocol & RAG Layers (`backend/mcp/` & `backend/rag/`)
+
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `backend/mcp/client.py` | **Scaffolded (Upcoming)** | Planned Model Context Protocol (MCP) client manager for connecting external tool servers dynamically. |
+| `backend/mcp/configs/mcp_config.json` | **Scaffolded (Upcoming)** | Configuration registry defining external MCP tool server endpoints and capabilities. |
+| `backend/rag/` | **Scaffolded (Upcoming)** | Planned Retrieval-Augmented Generation (RAG) pipeline for document ingestion, chunking, vector embeddings, and private knowledge retrieval. |
+
+---
+
+### I. Frontend Web Application (`frontend/`)
+
+| File / Folder | Status | Purpose & Responsibility |
+| :--- | :--- | :--- |
+| `frontend/package.json` | **Completed** | Defines frontend dependencies including Next.js 14, React 18, TypeScript, Tailwind CSS, Axios, Supabase JS, and Lucide icons. |
+| `frontend/public/` | **Scaffolded (Upcoming)** | Static public assets including logos, icons, and media files. |
+| `frontend/src/app/(auth)/login/` | **Scaffolded (Upcoming)** | User login page and session authentication flow. |
+| `frontend/src/app/(auth)/register/` | **Scaffolded (Upcoming)** | New user registration and initial workspace onboarding flow. |
+| `frontend/src/app/(dashboard)/chat/` | **Scaffolded (Upcoming)** | Primary multi-agent chat workspace featuring real-time SSE streaming responses and thread history navigation. |
+| `frontend/src/app/(dashboard)/agents/` | **Scaffolded (Upcoming)** | Agent management interface for configuring models, system prompts, and encrypted API keys. |
+| `frontend/src/app/(dashboard)/crm/` | **Scaffolded (Upcoming)** | CRM dashboard for viewing leads, customer interactions, and agent-assisted insights. |
+| `frontend/src/app/(dashboard)/analytics/` | **Scaffolded (Upcoming)** | Usage analytics dashboard tracking token consumption, agent routing metrics, and workspace activity. |
+| `frontend/src/app/(dashboard)/pricing/` | **Scaffolded (Upcoming)** | Subscription plans, usage quotas, and billing management interface. |
+| `frontend/src/app/(dashboard)/settings/` | **Scaffolded (Upcoming)** | Workspace settings, team access controls, and security preferences. |
+| `frontend/src/components/` (`ui/`, `layout/`, `chat/`) | **Scaffolded (Upcoming)** | Modular React UI components, dashboard navigation shells, and streaming chat message bubbles. |
+| `frontend/src/lib/`, `types/`, `styles/` | **Scaffolded (Upcoming)** | Typed API client helpers, shared TypeScript interfaces, and global Tailwind CSS styling. |
+
+---
+
+## Step 5: Step-by-Step Operational Workflow
+
+1. **Environment & Secret Initialization:** Sensitive credentials (Supabase database URL, Fernet encryption secret, LLM API keys, and LangSmith keys) are loaded securely from the local environment configuration.
+2. **Database & Checkpointer Verification:** The diagnostic suite validates PostgreSQL connectivity, ensures multi-tenant ORM tables exist, and verifies LangGraph's 10 internal checkpoint migration steps (`0` through `9`).
+3. **API Gateway Activation:** The FastAPI backend launches and exposes interactive OpenAPI documentation alongside modular REST and SSE endpoints.
+4. **Multi-Agent Execution Flow:**
+   * A user sends a message tied to a `workspace_id` and `thread_id`.
+   * The security vault decrypts the workspace's configured LLM key and initializes the chosen model via the LLM factory.
+   * LangGraph loads prior conversation history from PostgreSQL using `thread_id`.
+   * The Meta-Agent router classifies intent and routes execution to General Chat, the Research Agent (Tavily search), or the CRM Agent (Supabase lookup).
+   * The response streams back to the client in real time while the updated conversation state is checkpointed to PostgreSQL.
+
+---
+
+## Step 6: Upcoming Development Roadmap
+
+* **Step 1 — Modular API Verification:** Run end-to-end verification across all separated v1 routes (`chat_routes.py`, `workspace_routes.py`, and `agent_routes.py`).
+* **Step 2 — RAG Knowledge Base Pipeline (`backend/rag/`):** Build document upload, text chunking, embedding generation, and vector similarity search scoped by workspace.
+* **Step 3 — MCP Server Integration (`backend/mcp/`):** Connect external Model Context Protocol servers to expand agent tool capabilities dynamically.
+* **Step 4 — Authentication & RLS Enforcement (`auth_service.py`):** Implement full JWT authentication middleware and activate PostgreSQL Row Level Security policies in Supabase.
+* **Step 5 — Next.js Frontend Dashboard (`frontend/`):** Build the interactive SaaS dashboard UI connected to the FastAPI streaming endpoints.
