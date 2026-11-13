@@ -1,8 +1,9 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import inspect, text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
+from backend.api.v1.auth_sync import ensure_workspace_members_table
 from backend.database.connection import get_db
 from backend.database.models import User, Workspace
 from backend.schemas.workspace_schema import (
@@ -19,14 +20,18 @@ router = APIRouter(prefix="/workspaces", tags=["Workspaces & Tenants"])
 
 @router.post("", response_model=WorkspaceCreateResponse)
 def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(get_db)):
-    """Creates a new tenant workspace for an authenticated or new operator."""
+    """Creates a new tenant workspace and links it to the operator's email."""
     clean_slug = payload.slug.strip().lower()
+    clean_email = payload.owner_email.strip().lower()
+
     existing_slug = db.query(Workspace).filter(Workspace.slug == clean_slug).first()
     if existing_slug:
         raise HTTPException(
             status_code=400,
             detail=f"Workspace slug '{clean_slug}' is already taken.",
         )
+
+    ensure_workspace_members_table(db)
 
     try:
         workspace = Workspace(
@@ -38,7 +43,7 @@ def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(ge
         db.flush()
 
         existing_user = (
-            db.query(User).filter(User.email == payload.owner_email).first()
+            db.query(User).filter(func.lower(User.email) == clean_email).first()
         )
 
         if not existing_user:
@@ -47,42 +52,39 @@ def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(ge
                 if payload.admin_password
                 else "SUPABASE_AUTH_MANAGED"
             )
-            user_kwargs = {
-                "workspace_id": workspace.id,
-                "email": payload.owner_email,
-                "full_name": payload.admin_full_name or payload.name.strip(),
-                "role": "admin",
-            }
-            if hasattr(User, "hashed_password"):
-                user_kwargs["hashed_password"] = hashed_pw
-
-            admin_user = User(**user_kwargs)
+            admin_user = User(
+                workspace_id=workspace.id,
+                email=clean_email,
+                hashed_password=hashed_pw,
+                full_name=payload.admin_full_name or payload.name.strip(),
+                role="admin",
+            )
             db.add(admin_user)
             db.flush()
             resolved_user_id = str(admin_user.id)
         else:
             resolved_user_id = str(existing_user.id)
 
-        # Link workspace membership if workspace_members table exists
-        inspector = inspect(db.bind)
-        if inspector.has_table("workspace_members"):
-            cols = {c["name"] for c in inspector.get_columns("workspace_members")}
-            if {"workspace_id", "user_id"}.issubset(cols):
-                db.execute(
-                    text(
-                        "INSERT INTO workspace_members (workspace_id, user_id, role) "
-                        "VALUES (:wid, :uid, 'admin') ON CONFLICT DO NOTHING"
-                    ),
-                    {"wid": str(workspace.id), "uid": resolved_user_id},
+        db.execute(
+            text(
+                """
+                INSERT INTO workspace_members (workspace_id, user_email, user_id, role)
+                VALUES (
+                    CAST(:wid AS UUID),
+                    CAST(:email AS VARCHAR),
+                    CAST(:uid AS UUID),
+                    'admin'
                 )
-            elif {"workspace_id", "user_email"}.issubset(cols):
-                db.execute(
-                    text(
-                        "INSERT INTO workspace_members (workspace_id, user_email, role) "
-                        "VALUES (:wid, :email, 'admin') ON CONFLICT DO NOTHING"
-                    ),
-                    {"wid": str(workspace.id), "email": payload.owner_email},
-                )
+                ON CONFLICT (workspace_id, user_email) WHERE user_email IS NOT NULL
+                DO NOTHING
+                """
+            ),
+            {
+                "wid": str(workspace.id),
+                "email": clean_email,
+                "uid": resolved_user_id,
+            },
+        )
 
         db.commit()
         db.refresh(workspace)
@@ -94,7 +96,7 @@ def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(ge
             workspace_name=workspace.name,
             slug=workspace.slug,
             admin_user_id=resolved_user_id,
-            admin_email=payload.owner_email,
+            admin_email=clean_email,
         )
     except HTTPException:
         db.rollback()

@@ -1,9 +1,8 @@
 import re
-import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
-from sqlalchemy.exc import IntegrityError
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from backend.database.connection import get_db
@@ -12,52 +11,70 @@ from backend.database.models import User, Workspace
 router = APIRouter(prefix="/auth", tags=["Authentication & Tenant Sync"])
 
 
-class SyncWorkspacePayload(BaseModel):
-    email: EmailStr
-    full_name: Optional[str] = "Workspace Admin"
-    workspace_name: Optional[str] = None
-    slug: Optional[str] = None
+class SyncWorkspaceRequest(BaseModel):
     supabase_user_id: Optional[str] = None
+    email: str
+    full_name: Optional[str] = None
+
+
+def ensure_workspace_members_table(db: Session) -> None:
+    """Creates and aligns the multi-workspace junction table in Supabase."""
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS workspace_members (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_email VARCHAR(255) NOT NULL,
+                user_id UUID NULL,
+                role VARCHAR(50) NOT NULL DEFAULT 'admin',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            ALTER TABLE workspace_members
+            ADD COLUMN IF NOT EXISTS user_email VARCHAR(255);
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_members_ws_email
+            ON workspace_members (workspace_id, user_email)
+            WHERE user_email IS NOT NULL;
+            """
+        )
+    )
+    db.commit()
 
 
 def _generate_unique_slug(db: Session, base_text: str) -> str:
-    clean = re.sub(r"[^a-z0-9\s-]", "", base_text.lower().strip())
-    clean = re.sub(r"[\s-]+", "-", clean).strip("-") or "workspace"
-    candidate = clean
+    clean = re.sub(r"[^a-z0-9]+", "-", base_text.lower()).strip("-") or "workspace"
+    slug = clean
     counter = 1
-    while db.query(Workspace).filter(Workspace.slug == candidate).first():
-        candidate = f"{clean}-{counter}"
+    while db.query(Workspace).filter(Workspace.slug == slug).first():
+        slug = f"{clean}-{counter}"
         counter += 1
-    return candidate
-
-
-def _format_sync_response(
-    workspace: Workspace,
-    user: User,
-    fallback_name: Optional[str],
-    is_new: bool,
-) -> dict:
-    return {
-        "workspace_id": str(workspace.id),
-        "workspace_name": workspace.name,
-        "slug": workspace.slug,
-        "user_id": str(user.id),
-        "email": user.email,
-        "full_name": user.full_name or fallback_name or user.email.split("@")[0],
-        "is_new_workspace": is_new,
-    }
+    return slug
 
 
 @router.post("/sync-workspace")
-def sync_authenticated_user_workspace(
-    payload: SyncWorkspacePayload,
-    db: Session = Depends(get_db),
-):
-    """
-    Links a verified Supabase Auth user (Email OTP or Google OAuth)
-    with a PostgreSQL tenant workspace. Creates a default workspace if new.
-    """
-    existing_user = db.query(User).filter(User.email == payload.email).first()
+def sync_user_workspace(payload: SyncWorkspaceRequest, db: Session = Depends(get_db)):
+    """Ensures an authenticated Supabase user has a primary tenant workspace."""
+    clean_email = payload.email.strip().lower()
+    if not clean_email:
+        raise HTTPException(status_code=400, detail="Email is required.")
+
+    ensure_workspace_members_table(db)
+
+    existing_user = (
+        db.query(User).filter(func.lower(User.email) == clean_email).first()
+    )
 
     if existing_user:
         workspace = (
@@ -65,102 +82,187 @@ def sync_authenticated_user_workspace(
             .filter(Workspace.id == existing_user.workspace_id)
             .first()
         )
-        if not workspace:
-            raise HTTPException(status_code=404, detail="Linked workspace not found.")
-
-        return _format_sync_response(
-            workspace=workspace,
-            user=existing_user,
-            fallback_name=payload.full_name,
-            is_new=False,
-        )
-
-    # Provision new tenant workspace for newly verified user
-    ws_name = (
-        payload.workspace_name.strip()
-        if payload.workspace_name and payload.workspace_name.strip()
-        else f"{(payload.full_name or payload.email.split('@')[0]).title()} Workspace"
-    )
-    ws_slug = _generate_unique_slug(db, payload.slug or ws_name)
-
-    user_uuid = uuid.uuid4()
-    if payload.supabase_user_id:
-        try:
-            user_uuid = uuid.UUID(payload.supabase_user_id)
-        except ValueError:
-            pass
-
-    try:
-        new_workspace = Workspace(
-            id=uuid.uuid4(),
-            name=ws_name,
-            slug=ws_slug,
-            is_active=True,
-        )
-        db.add(new_workspace)
-        db.flush()
-
-        new_user = User(
-            id=user_uuid,
-            workspace_id=new_workspace.id,
-            email=payload.email,
-            hashed_password="SUPABASE_AUTH_MANAGED",
-            full_name=payload.full_name or payload.email.split("@")[0],
-            role="admin",
-        )
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_workspace)
-        db.refresh(new_user)
-
-        return _format_sync_response(
-            workspace=new_workspace,
-            user=new_user,
-            fallback_name=payload.full_name,
-            is_new=True,
-        )
-    except IntegrityError:
-        # Handle concurrent duplicate OAuth callback request safely
-        db.rollback()
-        existing_user = db.query(User).filter(User.email == payload.email).first()
-        if existing_user:
-            workspace = (
-                db.query(Workspace)
-                .filter(Workspace.id == existing_user.workspace_id)
-                .first()
+        if workspace:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO workspace_members (workspace_id, user_email, user_id, role)
+                    VALUES (
+                        CAST(:wid AS UUID),
+                        CAST(:email AS VARCHAR),
+                        CAST(:uid AS UUID),
+                        CAST(:role AS VARCHAR)
+                    )
+                    ON CONFLICT (workspace_id, user_email) WHERE user_email IS NOT NULL
+                    DO NOTHING
+                    """
+                ),
+                {
+                    "wid": str(workspace.id),
+                    "email": clean_email,
+                    "uid": str(existing_user.id),
+                    "role": existing_user.role or "admin",
+                },
             )
-            if workspace:
-                return _format_sync_response(
-                    workspace=workspace,
-                    user=existing_user,
-                    fallback_name=payload.full_name,
-                    is_new=False,
-                )
-        raise HTTPException(
-            status_code=409,
-            detail="Workspace sync conflict. Please refresh and sign in again.",
-        )
+            db.commit()
+            return {
+                "workspace": {
+                    "id": str(workspace.id),
+                    "workspace_id": str(workspace.id),
+                    "name": workspace.name,
+                    "slug": workspace.slug,
+                    "role": existing_user.role or "admin",
+                }
+            }
+
+    display_name = (
+        payload.full_name.strip()
+        if payload.full_name and payload.full_name.strip()
+        else clean_email.split("@")[0]
+    )
+    ws_name = f"{display_name}'s Workspace"
+    ws_slug = _generate_unique_slug(db, display_name)
+
+    workspace = Workspace(name=ws_name, slug=ws_slug, is_active=True)
+    db.add(workspace)
+    db.flush()
+
+    new_user = User(
+        workspace_id=workspace.id,
+        email=clean_email,
+        hashed_password="SUPABASE_AUTH_MANAGED",
+        full_name=display_name,
+        role="admin",
+    )
+    db.add(new_user)
+    db.flush()
+
+    db.execute(
+        text(
+            """
+            INSERT INTO workspace_members (workspace_id, user_email, user_id, role)
+            VALUES (
+                CAST(:wid AS UUID),
+                CAST(:email AS VARCHAR),
+                CAST(:uid AS UUID),
+                'admin'
+            )
+            ON CONFLICT (workspace_id, user_email) WHERE user_email IS NOT NULL
+            DO NOTHING
+            """
+        ),
+        {
+            "wid": str(workspace.id),
+            "email": clean_email,
+            "uid": str(new_user.id),
+        },
+    )
+    db.commit()
+    db.refresh(workspace)
+
+    return {
+        "workspace": {
+            "id": str(workspace.id),
+            "workspace_id": str(workspace.id),
+            "name": workspace.name,
+            "slug": workspace.slug,
+            "role": "admin",
+        }
+    }
 
 
 @router.get("/my-workspaces")
-def get_user_scoped_workspaces(email: EmailStr, db: Session = Depends(get_db)):
-    """Returns ONLY workspaces belonging to the authenticated user email."""
-    user_records = db.query(User).filter(User.email == email).all()
-    if not user_records:
+def get_my_workspaces(
+    email: str = Query(..., description="Authenticated user email"),
+    db: Session = Depends(get_db),
+):
+    """Returns all tenant workspaces belonging to the authenticated user."""
+    clean_email = email.strip().lower()
+    if not clean_email:
         return {"workspaces": []}
 
-    workspace_ids = [u.workspace_id for u in user_records]
-    workspaces = (
-        db.query(Workspace).filter(Workspace.id.in_(workspace_ids)).all()
-    )
+    ensure_workspace_members_table(db)
 
-    return {
-        "workspaces": [
+    user = db.query(User).filter(func.lower(User.email) == clean_email).first()
+    if user:
+        # 1. Link primary workspace from users table
+        if user.workspace_id:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO workspace_members (workspace_id, user_email, user_id, role)
+                    VALUES (
+                        CAST(:wid AS UUID),
+                        CAST(:email AS VARCHAR),
+                        CAST(:uid AS UUID),
+                        CAST(:role AS VARCHAR)
+                    )
+                    ON CONFLICT (workspace_id, user_email) WHERE user_email IS NOT NULL
+                    DO NOTHING
+                    """
+                ),
+                {
+                    "wid": str(user.workspace_id),
+                    "email": clean_email,
+                    "uid": str(user.id),
+                    "role": user.role or "admin",
+                },
+            )
+
+        # 2. Recover & link any unclaimed workspaces created by this operator
+        db.execute(
+            text(
+                """
+                INSERT INTO workspace_members (workspace_id, user_email, user_id, role)
+                SELECT w.id, CAST(:email AS VARCHAR), CAST(:uid AS UUID), 'admin'
+                FROM workspaces w
+                WHERE w.is_active = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM users u
+                      WHERE u.workspace_id = w.id
+                        AND LOWER(u.email) <> LOWER(CAST(:email AS TEXT))
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM workspace_members wm
+                      WHERE wm.workspace_id = w.id
+                        AND wm.user_email IS NOT NULL
+                        AND LOWER(wm.user_email) <> LOWER(CAST(:email AS TEXT))
+                  )
+                ON CONFLICT (workspace_id, user_email) WHERE user_email IS NOT NULL
+                DO NOTHING
+                """
+            ),
             {
-                "workspace_id": str(ws.id),
-                "name": ws.name,
-                "slug": ws.slug,
-            }
-            for ws in workspaces
-        ]
-    }
+                "email": clean_email,
+                "uid": str(user.id),
+            },
+        )
+        db.commit()
+
+    rows = db.execute(
+        text(
+            """
+            SELECT w.id, w.name, w.slug, w.is_active, COALESCE(wm.role, 'admin') AS role
+            FROM workspaces w
+            INNER JOIN workspace_members wm ON wm.workspace_id = w.id
+            WHERE LOWER(wm.user_email) = LOWER(CAST(:email AS TEXT))
+              AND w.is_active = TRUE
+            ORDER BY w.created_at ASC
+            """
+        ),
+        {"email": clean_email},
+    ).fetchall()
+
+    workspaces = [
+        {
+            "id": str(row.id),
+            "workspace_id": str(row.id),
+            "name": row.name,
+            "slug": row.slug,
+            "role": row.role,
+            "is_active": row.is_active,
+        }
+        for row in rows
+    ]
+
+    return {"workspaces": workspaces}
