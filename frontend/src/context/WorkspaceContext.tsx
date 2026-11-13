@@ -7,8 +7,17 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { LLMProvider } from "@/types/saas";
+
+export interface DashboardUser {
+  id: string;
+  email?: string;
+  fullName: string;
+  avatarUrl?: string;
+  user_metadata?: Record<string, unknown>;
+}
 
 export interface WorkspaceItem {
   id: string;
@@ -111,16 +120,30 @@ const STORAGE_SELECTED_MODEL_KEY = "stareleven_selected_model_v2";
 const STORAGE_CUSTOM_MODELS_KEY = "stareleven_custom_models_v1";
 const STORAGE_SELECTED_AGENT_KEY = "stareleven_selected_agent_v1";
 
-interface WorkspaceContextType {
+export interface WorkspaceContextType {
+  // Multi-Tenant Workspace State
   workspaces: WorkspaceItem[];
   activeWorkspace: WorkspaceItem | null;
+  currentWorkspace: WorkspaceItem | null;
   setActiveWorkspace: (ws: WorkspaceItem) => void;
   switchWorkspace: (workspaceId: string) => void;
   refreshWorkspaces: () => Promise<void>;
+  createWorkspace: {
+    (name: string, slug?: string): Promise<WorkspaceItem | null>;
+    (payload: { name: string; slug?: string }): Promise<WorkspaceItem | null>;
+  };
+
+  // Auth & Loading State
+  user: DashboardUser | null;
   userEmail: string | null;
   userId: string | null;
+  isLoading: boolean;
   isLoadingWorkspaces: boolean;
+  signOut: () => Promise<void>;
+
+  // Active Agent & Hybrid Model State
   selectedAgent: string;
+  activeAgent: string;
   setSelectedAgent: (agentId: string) => void;
   selectedModel: LLMModelOption;
   setSelectedModel: (model: LLMModelOption) => void;
@@ -132,9 +155,13 @@ interface WorkspaceContextType {
     customLabel?: string
   ) => LLMModelOption;
   removeCustomModel: (modelId: string) => void;
+
+  // Sidebar & Mobile Drawer State
   isSidebarCollapsed: boolean;
-  setIsSidebarCollapsed: (collapsed: boolean) => void;
+  setIsSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   toggleSidebar: () => void;
+  isMobileSidebarOpen: boolean;
+  setIsMobileSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
@@ -144,10 +171,23 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+function slugifyWorkspace(text: string): string {
+  return (
+    text
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || `workspace-${Date.now()}`
+  );
+}
+
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [activeWorkspace, setActiveWorkspaceState] =
     useState<WorkspaceItem | null>(null);
+  const [user, setUser] = useState<DashboardUser | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState<boolean>(true);
@@ -157,6 +197,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     useState<LLMModelOption>(DEFAULT_MODEL);
   const [customModels, setCustomModels] = useState<LLMModelOption[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] =
+    useState<boolean>(false);
 
   // Hydrate saved model & agent preferences on client mount
   useEffect(() => {
@@ -298,26 +340,43 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try {
       const supabase = createClient();
       const {
-        data: { user },
+        data: { user: authUser },
       } = await supabase.auth.getUser();
 
-      if (!user?.email) {
+      if (!authUser?.email) {
+        setUser(null);
         setIsLoadingWorkspaces(false);
         return;
       }
 
-      const email = user.email.toLowerCase();
-      setUserEmail(email);
-      setUserId(user.id);
+      const email = authUser.email.toLowerCase();
+      const resolvedFullName =
+        (typeof authUser.user_metadata?.full_name === "string" &&
+          authUser.user_metadata.full_name.trim()) ||
+        (typeof authUser.user_metadata?.name === "string" &&
+          authUser.user_metadata.name.trim()) ||
+        email.split("@")[0];
 
-      // Ensure primary workspace is synced
+      setUser({
+        id: authUser.id,
+        email: authUser.email,
+        fullName: resolvedFullName,
+        avatarUrl:
+          typeof authUser.user_metadata?.avatar_url === "string"
+            ? authUser.user_metadata.avatar_url
+            : undefined,
+        user_metadata: authUser.user_metadata,
+      });
+      setUserEmail(email);
+      setUserId(authUser.id);
+
       await fetch(`${API_BASE_URL}/api/v1/auth/sync-workspace`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          supabase_user_id: user.id,
+          supabase_user_id: authUser.id,
           email,
-          full_name: user.user_metadata?.full_name || email.split("@")[0],
+          full_name: resolvedFullName,
         }),
       });
 
@@ -333,7 +392,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           ? data.workspaces
           : [];
 
-        // Deduplicate by workspace id
         const uniqueMap = new Map<string, WorkspaceItem>();
         for (const item of rawList) {
           const key = item.id || item.workspace_id;
@@ -368,6 +426,96 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const createWorkspace = useCallback(
+    async (
+      nameOrPayload: string | { name: string; slug?: string },
+      optionalSlug?: string
+    ): Promise<WorkspaceItem | null> => {
+      const rawName =
+        typeof nameOrPayload === "string"
+          ? nameOrPayload
+          : nameOrPayload?.name;
+      const rawSlug =
+        typeof nameOrPayload === "string"
+          ? optionalSlug
+          : nameOrPayload?.slug;
+
+      if (!rawName || !rawName.trim()) {
+        throw new Error("Workspace name is required.");
+      }
+
+      const cleanName = rawName.trim();
+      const cleanSlug =
+        rawSlug && rawSlug.trim()
+          ? slugifyWorkspace(rawSlug)
+          : slugifyWorkspace(cleanName);
+
+      const ownerEmail = userEmail || user?.email?.toLowerCase();
+      if (!ownerEmail) {
+        throw new Error("Authenticated user email not found.");
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/workspaces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: cleanName,
+          slug: cleanSlug,
+          owner_email: ownerEmail,
+          admin_full_name: user?.fullName || ownerEmail.split("@")[0],
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to create workspace.");
+      }
+
+      const created = await response.json();
+      const newId = created.id || created.workspace_id;
+      const newItem: WorkspaceItem = {
+        id: newId,
+        workspace_id: newId,
+        name: created.name || created.workspace_name || cleanName,
+        slug: created.slug || cleanSlug,
+        role: "admin",
+        is_active: true,
+      };
+
+      setWorkspaces((prev) => {
+        const filtered = prev.filter(
+          (w) => w.id !== newId && w.workspace_id !== newId
+        );
+        return [...filtered, newItem];
+      });
+      setActiveWorkspace(newItem);
+
+      return newItem;
+    },
+    [userEmail, user, setActiveWorkspace]
+  );
+
+  const signOut = useCallback(async () => {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Sign out error:", err);
+    } finally {
+      setUser(null);
+      setUserEmail(null);
+      setUserId(null);
+      setWorkspaces([]);
+      setActiveWorkspaceState(null);
+      try {
+        localStorage.removeItem(STORAGE_ACTIVE_WS_KEY);
+      } catch {
+        // Ignore storage errors
+      }
+      router.push("/login");
+    }
+  }, [router]);
+
   useEffect(() => {
     refreshWorkspaces();
   }, [refreshWorkspaces]);
@@ -379,13 +527,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       value={{
         workspaces,
         activeWorkspace,
+        currentWorkspace: activeWorkspace,
         setActiveWorkspace,
         switchWorkspace,
         refreshWorkspaces,
+        createWorkspace,
+        user,
         userEmail,
         userId,
+        isLoading: isLoadingWorkspaces,
         isLoadingWorkspaces,
+        signOut,
         selectedAgent,
+        activeAgent: selectedAgent,
         setSelectedAgent,
         selectedModel,
         setSelectedModel,
@@ -396,6 +550,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         isSidebarCollapsed,
         setIsSidebarCollapsed,
         toggleSidebar,
+        isMobileSidebarOpen,
+        setIsMobileSidebarOpen,
       }}
     >
       {children}
