@@ -19,7 +19,7 @@ export interface ChatResponse {
 }
 
 export interface ThreadHistoryMessage {
-  role: "user" | "assistant" | "system" | "tool";
+  role: "user" | "assistant";
   content: string;
   agent?: string;
   timestamp?: string;
@@ -28,6 +28,7 @@ export interface ThreadHistoryMessage {
 export interface ThreadHistoryResponse {
   workspace_id: string;
   thread_id: string;
+  last_routed_agent?: string | null;
   messages: ThreadHistoryMessage[];
 }
 
@@ -58,6 +59,20 @@ export interface SyncWorkspacePayload {
   supabase_user_id?: string;
   email: string;
   full_name?: string;
+  workspace_name?: string;
+  slug?: string;
+}
+
+export interface SyncWorkspaceResponse {
+  status?: string;
+  workspace_id: string;
+  workspace_name: string;
+  slug: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  role?: string;
+  workspace?: WorkspaceSummary;
 }
 
 export interface CreateWorkspacePayload {
@@ -92,7 +107,10 @@ export interface AgentConfigResponse {
   has_custom_encrypted_key: boolean;
 }
 
-async function handleResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+async function handleResponse<T>(
+  response: Response,
+  fallbackMessage: string
+): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
@@ -111,6 +129,10 @@ export const starElevenApi = {
       headers: { "Content-Type": "application/json" },
     });
     return handleResponse<HealthCheckResponse>(response, "Health check failed");
+  },
+
+  async checkHealth(): Promise<HealthCheckResponse> {
+    return this.healthCheck();
   },
 
   async sendMessage(payload: ChatPayload): Promise<ChatResponse> {
@@ -195,16 +217,22 @@ export const starElevenApi = {
 
   async syncWorkspace(
     payload: SyncWorkspacePayload
-  ): Promise<{ workspace: WorkspaceSummary }> {
+  ): Promise<SyncWorkspaceResponse> {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/sync-workspace`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    return handleResponse<{ workspace: WorkspaceSummary }>(
+    return handleResponse<SyncWorkspaceResponse>(
       response,
       "Failed to sync workspace"
     );
+  },
+
+  async syncUserWorkspace(
+    payload: SyncWorkspacePayload
+  ): Promise<SyncWorkspaceResponse> {
+    return this.syncWorkspace(payload);
   },
 
   async createWorkspace(
