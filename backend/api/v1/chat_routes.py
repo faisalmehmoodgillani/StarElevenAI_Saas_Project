@@ -10,6 +10,11 @@ from backend.schemas.chat_schema import (
     ThreadHistoryResponse,
 )
 
+from backend.database.checkpointer import (
+    get_postgres_checkpointer,
+    delete_thread_checkpoints,
+)
+
 router = APIRouter(tags=["Multi-Agent Chat"])
 
 # Compile LangGraph workflow once with Supabase PostgreSQL checkpointer
@@ -146,3 +151,20 @@ def get_thread_history(workspace_id: str, thread_id: str):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {str(e)}")
+
+@router.delete("/threads/{workspace_id}/{thread_id}")
+def delete_conversation_thread(workspace_id: str, thread_id: str):
+    """Deletes all Supabase LangGraph checkpoint records for a workspace thread."""
+    try:
+        result = delete_thread_checkpoints(
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+        )
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete thread checkpoints: {str(e)}",
+        )
