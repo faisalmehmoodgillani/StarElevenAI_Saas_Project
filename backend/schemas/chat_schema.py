@@ -11,10 +11,7 @@ class ChatRequest(BaseModel):
         default="groq",
         description="LLM provider: groq, google, openai, anthropic, openrouter",
     )
-    model_name: str = Field(
-        default="llama-3.3-70b-versatile",
-        description="Target model identifier",
-    )
+    model_name: str = Field(default="openai/gpt-oss-20b", description="Target LLM model identifier")
     encrypted_api_key: Optional[str] = Field(
         default=None,
         description="Optional workspace encrypted API key",
