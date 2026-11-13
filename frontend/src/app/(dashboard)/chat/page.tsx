@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Loader2,
   TerminalSquare,
+  CheckCircle2,
 } from "lucide-react";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { starElevenApi } from "@/lib/api";
@@ -103,7 +104,7 @@ export default function ChatCommandCenterPage() {
       ? workspaceCtx.selectedModel
       : undefined) ||
     workspaceCtx?.modelName ||
-    "llama-3.3-70b-versatile";
+    "openai/gpt-oss-20b";
 
   const selectedHeaderAgent: string =
     workspaceCtx?.activeAgent || workspaceCtx?.selectedAgent || "meta_router";
@@ -114,6 +115,7 @@ export default function ChatCommandCenterPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [dbSyncNotice, setDbSyncNotice] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -206,6 +208,17 @@ export default function ChatCommandCenterPage() {
     }
   }, [workspaceId, storageKey, loadThreadMessages, saveThreadsToStorage]);
 
+  const handleStopStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsStreaming(false);
+    setMessages((prev) =>
+      prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+    );
+  };
+
   const handleCreateNewThread = () => {
     if (isStreaming) handleStopStreaming();
     const newId = generateThreadId();
@@ -229,7 +242,11 @@ export default function ChatCommandCenterPage() {
     loadThreadMessages(threadId);
   };
 
-  const handleDeleteThread = (threadId: string) => {
+  const handleDeleteThread = async (threadId: string) => {
+    if (isStreaming && threadId === activeThreadId) {
+      handleStopStreaming();
+    }
+
     const remaining = threads.filter((t) => t.id !== threadId);
     if (remaining.length === 0) {
       const replacementId = generateThreadId();
@@ -244,13 +261,23 @@ export default function ChatCommandCenterPage() {
       saveThreadsToStorage([fresh]);
       setActiveThreadId(replacementId);
       setMessages([]);
-      return;
+    } else {
+      saveThreadsToStorage(remaining);
+      if (threadId === activeThreadId) {
+        setActiveThreadId(remaining[0].id);
+        loadThreadMessages(remaining[0].id);
+      }
     }
 
-    saveThreadsToStorage(remaining);
-    if (threadId === activeThreadId) {
-      setActiveThreadId(remaining[0].id);
-      loadThreadMessages(remaining[0].id);
+    // Hard-delete LangGraph checkpoints from Supabase PostgreSQL
+    try {
+      setDbSyncNotice("Purging thread from Supabase...");
+      await starElevenApi.deleteThread(workspaceId, threadId);
+      setDbSyncNotice("Purged from Supabase");
+      setTimeout(() => setDbSyncNotice(null), 2500);
+    } catch (err) {
+      console.error("Failed to purge thread checkpoints from Supabase:", err);
+      setDbSyncNotice(null);
     }
   };
 
@@ -266,17 +293,6 @@ export default function ChatCommandCenterPage() {
       t.id === threadId ? { ...t, pinned: !t.pinned } : t
     );
     saveThreadsToStorage(updated);
-  };
-
-  const handleStopStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    setIsStreaming(false);
-    setMessages((prev) =>
-      prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
-    );
   };
 
   const handleSendMessage = async (promptText: string) => {
@@ -480,7 +496,13 @@ export default function ChatCommandCenterPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-400">
+          <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-400">
+            {dbSyncNotice && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-amber-300">
+                <CheckCircle2 className="h-3 w-3" />
+                <span>{dbSyncNotice}</span>
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-2.5 py-0.5 text-[#A3E635]">
               <ShieldCheck className="h-3 w-3" />
               <span>RLS Isolated</span>
