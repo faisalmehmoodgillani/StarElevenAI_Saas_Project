@@ -9,6 +9,20 @@ export interface StreamHandlers {
   signal?: AbortSignal;
 }
 
+export type StreamCallbacks = StreamHandlers;
+
+function resolveChatStreamUrl(): string {
+  const rawBase = (
+    API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://127.0.0.1:8000"
+  ).trim();
+
+  // Normalize host and always target exact /api/v1/chat/stream route
+  const cleanHost = rawBase.replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
+  return `${cleanHost}/api/v1/chat/stream`;
+}
+
 /**
  * Streams real-time agent routing events and LLM tokens from FastAPI POST /api/v1/chat/stream.
  */
@@ -17,9 +31,10 @@ export async function streamAgentChat(
   handlers: StreamHandlers
 ): Promise<void> {
   const { onAgentStatus, onToken, onComplete, onError, signal } = handlers;
+  const streamUrl = resolveChatStreamUrl();
 
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+    const response = await fetch(streamUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,6 +79,7 @@ export async function streamAgentChat(
         if (!line || !line.startsWith("data:")) continue;
 
         const dataStr = line.slice(5).trim();
+        if (!dataStr) continue;
 
         if (dataStr === "[DONE]") {
           onComplete?.();
@@ -75,7 +91,10 @@ export async function streamAgentChat(
 
           if (parsed.type === "status" && parsed.agent) {
             onAgentStatus?.(parsed.agent);
-          } else if (parsed.type === "token" && typeof parsed.content === "string") {
+          } else if (
+            parsed.type === "token" &&
+            typeof parsed.content === "string"
+          ) {
             onToken(parsed.content);
           } else if (parsed.type === "error") {
             onError?.(parsed.detail || "Agent stream encountered an error.");
