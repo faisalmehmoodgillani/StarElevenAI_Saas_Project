@@ -68,7 +68,7 @@ const INDUSTRY_PRESETS: IndustryPreset[] = [
     label: "Healthcare & Clinics",
     tagline: "Appointment triage, doctor schedules & patient FAQs",
     icon: Stethoscope,
-    badge: "HIPAA-Aware",
+    badge: "Clinical Care",
     defaultTone: "Empathetic & Clinical",
     defaultAudience: "Patients booking consultations, diagnostics, and follow-ups",
     defaultCriteria:
@@ -205,13 +205,17 @@ export function IndustryConfigTab({
 
       setStatusMessage({
         type: "success",
-        text: "Industry AI Brain & System Prompt rules saved to workspace!",
+        text: "Industry AI persona & custom domain rules saved!",
       });
       onSaved?.(selectedIndustry, config);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not save industry configuration.";
       setStatusMessage({
         type: "error",
-        text: err?.message || "Could not save industry configuration.",
+        text: message,
       });
     } finally {
       setSaving(false);
@@ -224,19 +228,19 @@ export function IndustryConfigTab({
 
   return (
     <div className="space-y-6">
-      {/* Section 1: 1-Click Industry Vertical Grid */}
+      {/* 1-Click Industry Vertical Grid */}
       <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-[#84CC16]" />
               <h2 className="text-base font-bold text-white">
-                1-Click Industry Vertical Preset
+                Industry Vertical Preset
               </h2>
             </div>
             <p className="mt-1 text-xs text-zinc-400">
-              Select your client&apos;s business vertical to auto-configure
-              domain prompts, terminology, and lead qualification logic.
+              Select your business vertical to automatically tailor AI
+              terminology, tone, and lead qualification logic.
             </p>
           </div>
           <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-3 py-1 font-mono text-[11px] font-semibold text-[#A3E635]">
@@ -294,12 +298,11 @@ export function IndustryConfigTab({
         </div>
       </div>
 
-      {/* Section 2: Fine-Tune Industry AI Behavior & Live Prompt Preview */}
+      {/* Fine-Tune Industry AI Behavior & Live Prompt Preview */}
       <form
         onSubmit={handleSaveIndustryConfig}
         className="grid grid-cols-1 gap-6 lg:grid-cols-3"
       >
-        {/* Left 2 Columns: Customization Inputs */}
         <div className="space-y-4 rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6 lg:col-span-2">
           <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
             <Sliders className="h-4 w-4 text-[#84CC16]" />
@@ -373,14 +376,14 @@ export function IndustryConfigTab({
               onChange={(e) =>
                 setConfig({ ...config, target_audience: e.target.value })
               }
-              placeholder="e.g. Commercial real estate investors in Dubai & Lahore"
+              placeholder="e.g. Commercial real estate investors and residential buyers"
               className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
             />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-zinc-300">
-              Lead Qualification Criteria (For CRM & Lead Agents)
+              Lead Qualification Criteria
             </label>
             <textarea
               rows={2}
@@ -444,24 +447,24 @@ export function IndustryConfigTab({
           </div>
         </div>
 
-        {/* Right Column: Live Compiled System Prompt Preview */}
+        {/* Live System Prompt Preview */}
         <div className="flex flex-col justify-between rounded-2xl border border-zinc-800 bg-[#09090B] p-5">
           <div>
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2">
                 <Eye className="h-4 w-4 text-[#A3E635]" />
                 <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-200">
-                  Live System Prompt Preview
+                  Live System Persona
                 </h4>
               </div>
               <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
-                READ-ONLY
+                PREVIEW
               </span>
             </div>
 
             <div className="mt-3 space-y-2.5 rounded-xl border border-zinc-800/80 bg-[#121215] p-3.5 font-mono text-[11px] leading-relaxed text-zinc-300">
               <p className="text-[#A3E635]">
-                # WORKSPACE: {workspaceName || "StarEleven Tenant"}
+                # WORKSPACE: {workspaceName || "Workspace"}
               </p>
               <p>
                 <span className="text-zinc-500">VERTICAL:</span>{" "}
@@ -494,8 +497,8 @@ export function IndustryConfigTab({
           </div>
 
           <p className="mt-4 text-[11px] text-zinc-500">
-            Injected automatically into Meta-Router, Research, CRM, and Module
-            05 Specialized Agents at runtime.
+            Applied automatically across all active workspace AI agents during
+            conversations.
           </p>
         </div>
       </form>

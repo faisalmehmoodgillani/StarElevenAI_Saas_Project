@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ShieldCheck,
   KeyRound,
@@ -14,20 +14,22 @@ import {
 } from "lucide-react";
 
 interface ProviderVaultItem {
-  id: "groq" | "google" | "openai" | "anthropic" | "openrouter" | "tavily";
+  id: "groq" | "google" | "openai" | "anthropic" | "openrouter";
   name: string;
   subtitle: string;
   placeholder: string;
   badge: string;
+  defaultModel: string;
 }
 
-const VAULT_PROVIDERS: ProviderVaultItem[] = [
+const LLM_PROVIDERS: ProviderVaultItem[] = [
   {
     id: "groq",
     name: "Groq LPU Cloud",
     subtitle: "Ultra-fast inference (GPT-OSS 20B / 120B, Qwen 3, Kimi K2)",
     placeholder: "gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    badge: "Recommended",
+    badge: "Fastest",
+    defaultModel: "openai/gpt-oss-20b",
   },
   {
     id: "google",
@@ -35,6 +37,7 @@ const VAULT_PROVIDERS: ProviderVaultItem[] = [
     subtitle: "Gemini 2.5 Flash & Gemini 2.5 Pro multimodal reasoning",
     placeholder: "AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     badge: "Multimodal",
+    defaultModel: "gemini-2.5-flash",
   },
   {
     id: "openai",
@@ -42,6 +45,7 @@ const VAULT_PROVIDERS: ProviderVaultItem[] = [
     subtitle: "GPT-4o, GPT-4o-mini & structured enterprise tool calling",
     placeholder: "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     badge: "Enterprise",
+    defaultModel: "gpt-4o-mini",
   },
   {
     id: "anthropic",
@@ -49,6 +53,7 @@ const VAULT_PROVIDERS: ProviderVaultItem[] = [
     subtitle: "Claude Sonnet 4.5 high-precision coding & analysis",
     placeholder: "sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx",
     badge: "Reasoning",
+    defaultModel: "claude-sonnet-4-5",
   },
   {
     id: "openrouter",
@@ -56,13 +61,7 @@ const VAULT_PROVIDERS: ProviderVaultItem[] = [
     subtitle: "Unified fallback routing across 100+ open & frontier models",
     placeholder: "sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxx",
     badge: "Multi-Model",
-  },
-  {
-    id: "tavily",
-    name: "Tavily Live Web Search",
-    subtitle: "Real-time internet search tool for Deep Research Agent",
-    placeholder: "tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    badge: "Research Tool",
+    defaultModel: "openai/gpt-oss-20b:free",
   },
 ];
 
@@ -80,7 +79,15 @@ export function ApiKeyVaultTab({
   planMode,
   onPlanModeChange,
 }: ApiKeyVaultTabProps) {
-  const isByok = planMode?.toLowerCase() === "byok";
+  const [selectedMode, setSelectedMode] = useState<"managed" | "byok">(
+    planMode?.toLowerCase() === "byok" ? "byok" : "managed"
+  );
+
+  useEffect(() => {
+    setSelectedMode(planMode?.toLowerCase() === "byok" ? "byok" : "managed");
+  }, [planMode]);
+
+  const isByok = selectedMode === "byok";
 
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
@@ -92,15 +99,20 @@ export function ApiKeyVaultTab({
   const [vaultBanner, setVaultBanner] = useState<string | null>(null);
 
   const handleToggleMode = async (targetMode: "managed" | "byok") => {
-    if (targetMode === (isByok ? "byok" : "managed")) return;
+    if (targetMode === selectedMode || switchingMode) return;
+    setSelectedMode(targetMode);
     setSwitchingMode(true);
+    setVaultBanner(null);
+
     try {
       await onPlanModeChange(targetMode);
       setVaultBanner(
         targetMode === "byok"
-          ? "Switched to BYOK Mode — agents will now use your AES-256 encrypted workspace keys."
-          : "Switched to Fully Managed Mode — agents are powered by StarEleven cloud infrastructure."
+          ? "BYOK Mode active — agents will use your workspace's encrypted LLM keys."
+          : "Fully Managed Mode active — agents run on StarEleven cloud infrastructure."
       );
+    } catch {
+      setVaultBanner("Could not update plan mode. Please try again.");
     } finally {
       setSwitchingMode(false);
     }
@@ -114,24 +126,14 @@ export function ApiKeyVaultTab({
     setVaultBanner(null);
 
     try {
-      // Encrypt and store via backend agent config / vault endpoint
       const res = await fetch(`${API_BASE_URL}/api/v1/agents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspace_id: workspaceId,
           agent_type: `${provider.id}_vault_key`,
-          provider: provider.id === "tavily" ? "groq" : provider.id,
-          model_name:
-            provider.id === "groq"
-              ? "openai/gpt-oss-20b"
-              : provider.id === "google"
-              ? "gemini-2.5-flash"
-              : provider.id === "openai"
-              ? "gpt-4o-mini"
-              : provider.id === "anthropic"
-              ? "claude-sonnet-4-5"
-              : "openai/gpt-oss-20b:free",
+          provider: provider.id,
+          model_name: provider.defaultModel,
           api_key: rawKey,
           settings_json: {
             vault_provider: provider.id,
@@ -147,12 +149,14 @@ export function ApiKeyVaultTab({
       setSavedProviders((prev) => ({ ...prev, [provider.id]: true }));
       setKeys((prev) => ({ ...prev, [provider.id]: "" }));
       setVaultBanner(
-        `${provider.name} key encrypted with AES-256 Fernet and stored securely in Supabase.`
+        `${provider.name} API key encrypted with AES-256 and stored securely.`
       );
-    } catch (err: any) {
-      setVaultBanner(
-        err?.message || "Could not store key. Check backend connection."
-      );
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not store key. Check backend connection.";
+      setVaultBanner(message);
     } finally {
       setSavingProvider(null);
     }
@@ -160,22 +164,22 @@ export function ApiKeyVaultTab({
 
   return (
     <div className="space-y-6">
-      {/* Dual-Mode Operational Architecture Switcher */}
+      {/* AI Infrastructure Mode Switcher */}
       <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-base font-bold text-white">
-              AI Infrastructure & Billing Mode
+              AI Execution & Billing Mode
             </h2>
             <p className="mt-1 text-xs text-zinc-400">
-              Choose whether this workspace runs on StarEleven&apos;s Managed
-              AI keys or your client&apos;s own BYOK credentials[cite: 1, 2].
+              Choose whether this workspace runs on StarEleven&apos;s Managed AI
+              cloud or your own LLM provider keys.
             </p>
           </div>
           {switchingMode && (
             <span className="inline-flex items-center gap-1.5 text-xs text-[#A3E635]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Updating Mode...
+              Saving Mode...
             </span>
           )}
         </div>
@@ -206,9 +210,8 @@ export function ApiKeyVaultTab({
                 )}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-                Zero setup required. Agents execute immediately using
-                StarEleven&apos;s enterprise LLM pool[cite: 1, 2]. Ideal for non-technical B2B
-                clients.
+                Zero setup required. Agents execute immediately using built-in
+                enterprise LLM models without managing API keys.
               </p>
             </div>
           </button>
@@ -238,15 +241,15 @@ export function ApiKeyVaultTab({
                 )}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-                Supply custom Groq, Gemini, OpenAI, or Claude keys[cite: 1]. Encrypted
-                via AES-256 Fernet and decrypted strictly in-memory[cite: 1].
+                Connect your own Groq, Gemini, OpenAI, Claude, or OpenRouter
+                keys. Encrypted with AES-256 and isolated to this workspace.
               </p>
             </div>
           </button>
         </div>
       </div>
 
-      {/* AES-256 Encrypted API Key Vault */}
+      {/* AES-256 Encrypted LLM Key Vault */}
       <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-2 border-b border-zinc-800 pb-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2.5">
@@ -255,17 +258,18 @@ export function ApiKeyVaultTab({
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
-                AES-256 Fernet Credential Vault
+                AI Model Provider Keys (AES-256 Vault)
               </h3>
               <p className="text-xs text-zinc-400">
-                Raw API keys are never logged or exposed in plaintext[cite: 1, 3].
+                External tool keys (like Web Search & CRM) are managed in the{" "}
+                <strong className="text-zinc-200">Tools &amp; MCP</strong> tab.
               </p>
             </div>
           </div>
 
           <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-[#09090B] px-3 py-1.5 font-mono text-[11px] text-zinc-300">
             <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
-            <span>Zero-Knowledge Encryption</span>
+            <span>AES-256 Encrypted</span>
           </div>
         </div>
 
@@ -276,7 +280,7 @@ export function ApiKeyVaultTab({
         )}
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {VAULT_PROVIDERS.map((item) => {
+          {LLM_PROVIDERS.map((item) => {
             const isVisible = !!visibleKeys[item.id];
             const isSaved = !!savedProviders[item.id];
             const isSaving = savingProvider === item.id;
@@ -293,7 +297,7 @@ export function ApiKeyVaultTab({
                     </span>
                     {isSaved ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2 py-0.5 text-[10px] font-semibold text-[#A3E635]">
-                        <CheckCircle2 className="h-3 w-3" /> Encrypted & Saved
+                        <CheckCircle2 className="h-3 w-3" /> Encrypted &amp; Saved
                       </span>
                     ) : (
                       <span className="rounded bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-zinc-400">

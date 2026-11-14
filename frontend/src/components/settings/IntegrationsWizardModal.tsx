@@ -52,7 +52,7 @@ export function IntegrationsWizardModal({
       setValidating(false);
       setVerified(true);
       onVerified(tool.id, primaryValue.trim());
-    }, 1100);
+    }, 900);
   };
 
   const resetAndClose = () => {
@@ -75,7 +75,7 @@ export function IntegrationsWizardModal({
             </div>
             <div>
               <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[#A3E635]">
-                Guided Setup Wizard • Step {step} of 3
+                Setup Wizard • Step {step} of 3
               </span>
               <h3 className="text-base font-bold text-white">
                 Connect {tool.name}
@@ -104,7 +104,7 @@ export function IntegrationsWizardModal({
           ))}
         </div>
 
-        {/* Step 1: Easy Non-Technical Guide */}
+        {/* Step 1: Quick Guide */}
         {step === 1 && (
           <div className="mt-5 space-y-4">
             <p className="text-xs leading-relaxed text-zinc-300">
@@ -183,8 +183,8 @@ export function IntegrationsWizardModal({
             <div className="flex items-center gap-2 rounded-xl border border-zinc-800/80 bg-[#09090B] p-3 text-[11px] text-zinc-400">
               <ShieldCheck className="h-4 w-4 shrink-0 text-[#84CC16]" />
               <span>
-                Credentials are encrypted with AES-256 Fernet and isolated
-                strictly to your active workspace[cite: 1].
+                Credentials are encrypted with AES-256 and isolated strictly to
+                your active workspace.
               </span>
             </div>
 
@@ -202,23 +202,23 @@ export function IntegrationsWizardModal({
                 onClick={handleVerifyConnection}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#84CC16] px-4 py-2 text-xs font-bold text-[#09090B] hover:bg-[#A3E635] disabled:opacity-40"
               >
-                Next: Test & Verify <ArrowRight className="h-3.5 w-3.5" />
+                Test &amp; Verify <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Auto-Validation & Verified Badge */}
+        {/* Step 3: Verification Result */}
         {step === 3 && (
           <div className="mt-6 flex flex-col items-center py-4 text-center">
             {validating ? (
               <>
                 <Loader2 className="h-10 w-10 animate-spin text-[#84CC16]" />
                 <h4 className="mt-3 text-sm font-bold text-white">
-                  Validating Endpoint & Workspace Handshake...
+                  Validating Connection...
                 </h4>
                 <p className="mt-1 text-xs text-zinc-400">
-                  Running secure connection check for {tool.name}
+                  Verifying credentials for {tool.name}
                 </p>
               </>
             ) : verified ? (
@@ -227,14 +227,14 @@ export function IntegrationsWizardModal({
                   <CheckCircle2 className="h-8 w-8" />
                 </div>
                 <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-3 py-1 font-mono text-xs font-bold text-[#A3E635]">
-                  <Sparkles className="h-3.5 w-3.5" /> ✓ VERIFIED & CONNECTED
+                  <Sparkles className="h-3.5 w-3.5" /> VERIFIED &amp; CONNECTED
                 </div>
                 <h4 className="mt-2 text-base font-bold text-white">
-                  {tool.name} is Ready for Your Agents
+                  {tool.name} is Now Active
                 </h4>
                 <p className="mt-1 max-w-sm text-xs text-zinc-400">
-                  Your AI agents in this workspace can now invoke {tool.name}{" "}
-                  tools automatically.
+                  Your workspace AI agents can now use {tool.name} during live
+                  tasks.
                 </p>
 
                 <button
@@ -242,7 +242,7 @@ export function IntegrationsWizardModal({
                   onClick={resetAndClose}
                   className="mt-6 rounded-xl bg-[#84CC16] px-6 py-2.5 text-xs font-bold text-[#09090B] hover:bg-[#A3E635]"
                 >
-                  Done & Return to Settings
+                  Done
                 </button>
               </>
             ) : null}

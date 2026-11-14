@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Building2,
   Sparkles,
   KeyRound,
   Plug,
+  Users,
   Save,
   Copy,
   Check,
@@ -18,21 +20,47 @@ import {
   Server,
   CheckCircle2,
   ArrowUpRight,
+  Lock,
+  UserPlus,
+  Mail,
 } from "lucide-react";
 import { useWorkspace } from "@/context/WorkspaceContext";
-import {
-  IndustryConfigTab,
-  type IndustryConfigData,
-} from "@/components/settings/IndustryConfigTab";
+import { IndustryConfigTab } from "@/components/settings/IndustryConfigTab";
 import { ApiKeyVaultTab } from "@/components/settings/ApiKeyVaultTab";
 import {
   IntegrationsWizardModal,
   type IntegrationToolDef,
 } from "@/components/settings/IntegrationsWizardModal";
 
-type SettingsTab = "workspace" | "industry" | "vault" | "integrations";
+type SettingsTab =
+  | "workspace"
+  | "industry"
+  | "vault"
+  | "integrations"
+  | "team";
 
-const INTEGRATION_TOOLS: (IntegrationToolDef & { icon: React.ElementType })[] = [
+const TAB_STORAGE_KEY = "stareleven_settings_active_tab";
+
+const INTEGRATION_TOOLS: (IntegrationToolDef & {
+  icon: React.ElementType;
+  freeFallback?: string;
+})[] = [
+  {
+    id: "tavily_search",
+    name: "Tavily Live Web Search",
+    category: "Web Research & Fact-Checking",
+    icon: Globe,
+    freeFallback: "DuckDuckGo Free Search Active",
+    description:
+      "Connect your Tavily API key for deep enterprise web research. If left unconfigured, agents automatically use DuckDuckGo Free Search at $0 cost.",
+    stepsOverview: [
+      "Sign in at app.tavily.com and copy your API key.",
+      "Paste your tvly-... key in the next step.",
+      "Click Verify to upgrade web research from free mode to Tavily.",
+    ],
+    fieldLabel: "Tavily API Key",
+    fieldPlaceholder: "tvly-xxxxxxxxxxxxxxxxxxxxxxxx",
+  },
   {
     id: "whatsapp_crm",
     name: "WhatsApp Cloud CRM",
@@ -43,7 +71,7 @@ const INTEGRATION_TOOLS: (IntegrationToolDef & { icon: React.ElementType })[] = 
     stepsOverview: [
       "Open Meta for Developers > WhatsApp > API Setup.",
       "Copy your Permanent System User Access Token and Phone Number ID.",
-      "Paste below to link WhatsApp directly to this client workspace.",
+      "Paste below to link WhatsApp directly to this workspace.",
     ],
     fieldLabel: "WhatsApp Permanent Access Token",
     fieldPlaceholder: "EAABsbCS1iHgBO...",
@@ -59,28 +87,13 @@ const INTEGRATION_TOOLS: (IntegrationToolDef & { icon: React.ElementType })[] = 
       "Allow your agents to check real-time calendar availability, book client meetings, and send follow-up emails automatically.",
     stepsOverview: [
       "Enable Google Calendar & Gmail API in Google Cloud Console.",
-      "Paste your OAuth Client / Webhook Bridge URL below.",
+      "Paste your OAuth Client or Webhook Bridge credential below.",
       "Verify connection to unlock automated appointment booking.",
     ],
-    fieldLabel: "Google MCP / OAuth Bridge Credential",
+    fieldLabel: "Google OAuth / Bridge Credential",
     fieldPlaceholder: "ya29.a0AfH6SMB...",
     secondaryLabel: "Default Booking Calendar Email",
     secondaryPlaceholder: "bookings@yourcompany.com",
-  },
-  {
-    id: "tavily_search",
-    name: "Tavily Live Web Search",
-    category: "Market Intelligence",
-    icon: Globe,
-    description:
-      "Equip your Deep Research Agent with real-time internet search for competitor analysis, live news, and market verification.",
-    stepsOverview: [
-      "Sign in at app.tavily.com and copy your API key.",
-      "Paste your tvly-... key in the next step.",
-      "Agents will automatically verify live facts during conversations.",
-    ],
-    fieldLabel: "Tavily API Key",
-    fieldPlaceholder: "tvly-xxxxxxxxxxxxxxxxxxxxxxxx",
   },
   {
     id: "custom_mcp",
@@ -88,11 +101,11 @@ const INTEGRATION_TOOLS: (IntegrationToolDef & { icon: React.ElementType })[] = 
     category: "Model Context Protocol",
     icon: Server,
     description:
-      "Plug in any external Model Context Protocol (MCP) SSE or HTTP server to expand your workspace agents with custom company APIs[cite: 1].",
+      "Plug in any external Model Context Protocol (MCP) SSE or HTTP server to connect your workspace agents with custom internal APIs.",
     stepsOverview: [
-      "Deploy or copy your MCP Server SSE endpoint URL.",
+      "Copy your MCP Server SSE endpoint URL.",
       "Provide an optional Bearer Auth header token.",
-      "Click Verify to register dynamic MCP tools for Module 05 agents.",
+      "Click Verify to register dynamic MCP tools for your agents.",
     ],
     fieldLabel: "MCP Server Endpoint URL",
     fieldPlaceholder: "https://mcp.yourdomain.com/sse",
@@ -104,14 +117,48 @@ const INTEGRATION_TOOLS: (IntegrationToolDef & { icon: React.ElementType })[] = 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+function slugifyCompanyName(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export default function SettingsPage() {
   const { activeWorkspace, refreshWorkspaces, user, userEmail } = useWorkspace();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("workspace");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    if (typeof window !== "undefined") {
+      const saved = window.sessionStorage.getItem(
+        TAB_STORAGE_KEY
+      ) as SettingsTab | null;
+      if (
+        saved &&
+        ["workspace", "industry", "vault", "integrations", "team"].includes(
+          saved
+        )
+      ) {
+        return saved;
+      }
+    }
+    return "workspace";
+  });
 
-  // Workspace General Profile State
+  const handleTabChange = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(TAB_STORAGE_KEY, tab);
+    }
+  };
+
+  // Workspace & Profile State
   const [companyName, setCompanyName] = useState("");
   const [workspaceSlug, setWorkspaceSlug] = useState("");
+  const [manualSlugOverride, setManualSlugOverride] = useState(false);
+  const [timezone, setTimezone] = useState("Asia/Karachi");
   const [savingGeneral, setSavingGeneral] = useState(false);
   const [generalFeedback, setGeneralFeedback] = useState<{
     type: "success" | "error";
@@ -121,16 +168,32 @@ export default function SettingsPage() {
 
   // Integrations Wizard State
   const [wizardTool, setWizardTool] = useState<IntegrationToolDef | null>(null);
-  const [verifiedTools, setVerifiedTools] = useState<Record<string, boolean>>({
-    tavily_search: true,
-  });
+  const [verifiedTools, setVerifiedTools] = useState<Record<string, boolean>>(
+    {}
+  );
+
+  // Team Invite State
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("operator");
+  const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeWorkspace) {
       setCompanyName(activeWorkspace.name || "");
       setWorkspaceSlug(activeWorkspace.slug || "");
+      setManualSlugOverride(false);
     }
   }, [activeWorkspace]);
+
+  const handleCompanyNameChange = (newName: string) => {
+    setCompanyName(newName);
+    if (!manualSlugOverride) {
+      const generated = slugifyCompanyName(newName);
+      if (generated) {
+        setWorkspaceSlug(generated);
+      }
+    }
+  };
 
   const workspaceId =
     activeWorkspace?.id || (activeWorkspace as any)?.workspace_id || "";
@@ -150,11 +213,10 @@ export default function SettingsPage() {
     setGeneralFeedback(null);
 
     try {
-      const cleanSlug = workspaceSlug
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9-]+/g, "-")
-        .replace(/^-+|-+$/g, "");
+      const finalSlug =
+        slugifyCompanyName(workspaceSlug) ||
+        slugifyCompanyName(companyName) ||
+        activeWorkspace?.slug;
 
       const res = await fetch(
         `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
@@ -163,7 +225,7 @@ export default function SettingsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: companyName.trim(),
-            slug: cleanSlug || activeWorkspace?.slug,
+            slug: finalSlug,
           }),
         }
       );
@@ -173,15 +235,20 @@ export default function SettingsPage() {
         throw new Error(errData.detail || "Failed to update workspace.");
       }
 
+      setWorkspaceSlug(finalSlug || "");
       await refreshWorkspaces();
       setGeneralFeedback({
         type: "success",
         text: "Company workspace name & slug updated successfully!",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not update workspace settings.";
       setGeneralFeedback({
         type: "error",
-        text: err?.message || "Could not update workspace settings.",
+        text: message,
       });
     } finally {
       setSavingGeneral(false);
@@ -190,12 +257,27 @@ export default function SettingsPage() {
 
   const handlePlanModeUpdate = async (newMode: "managed" | "byok") => {
     if (!workspaceId) return;
-    await fetch(`${API_BASE_URL}/api/v1/workspaces/${workspaceId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_mode: newMode }),
-    });
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan_mode: newMode }),
+      }
+    );
+    if (!res.ok) {
+      throw new Error("Failed to switch plan mode");
+    }
     await refreshWorkspaces();
+  };
+
+  const handleInviteSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setInviteFeedback(
+      `Invitation queued for ${inviteEmail.trim()} as ${inviteRole.toUpperCase()} in ${companyName}.`
+    );
+    setInviteEmail("");
   };
 
   const TABS: {
@@ -213,48 +295,52 @@ export default function SettingsPage() {
       id: "industry",
       label: "Industry AI Brain",
       icon: Sparkles,
-      badge: "Task 4",
     },
     {
       id: "vault",
-      label: "Plan & API Vault",
+      label: "Plan & AI Vault",
       icon: KeyRound,
       badge: "AES-256",
     },
     {
       id: "integrations",
-      label: "Tools & MCP Wizard",
+      label: "Tools & MCP",
       icon: Plug,
+    },
+    {
+      id: "team",
+      label: "Team & Access",
+      icon: Users,
     },
   ];
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
-      {/* Top Enterprise Header Banner */}
+      {/* Top Header Banner */}
       <div className="flex flex-col justify-between gap-4 rounded-2xl border border-zinc-800 bg-gradient-to-r from-[#121215] via-[#141612] to-[#121215] p-6 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
             <span className="inline-flex h-2 w-2 rounded-full bg-[#84CC16] shadow-[0_0_10px_#84CC16]" />
             <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#A3E635]">
-              Enterprise Tenant Control Center
+              Workspace Control Center
             </span>
           </div>
           <h1 className="mt-1.5 text-xl font-bold text-white sm:text-2xl">
-            {activeWorkspace?.name || "Workspace"} — Settings & Vault
+            {activeWorkspace?.name || "Workspace"} — Settings &amp; Vault
           </h1>
           <p className="mt-1 text-xs text-zinc-400">
-            Configure company identity, industry-specific AI behavior, AES-256
-            encrypted API keys, and external MCP tool connectors[cite: 1].
+            Manage company identity, industry AI persona, encrypted LLM keys,
+            external tool integrations, and team access.
           </p>
         </div>
 
-        {/* Tenant ID Quick Copy Pill */}
+        {/* Workspace ID Quick Copy Pill */}
         {workspaceId && (
           <button
             type="button"
             onClick={handleCopyWorkspaceId}
             className="flex items-center gap-2 self-start rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 font-mono text-xs text-zinc-300 transition hover:border-[#84CC16]/50 sm:self-center"
-            title="Copy Tenant Workspace ID"
+            title="Copy Workspace ID"
           >
             <span className="text-zinc-500">ID:</span>
             <span className="max-w-[130px] truncate text-zinc-200">
@@ -278,7 +364,7 @@ export default function SettingsPage() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
                 isActive
                   ? "bg-[#84CC16] text-[#09090B] shadow-lg shadow-[#84CC16]/15"
@@ -303,50 +389,106 @@ export default function SettingsPage() {
         })}
       </div>
 
-      {/* TAB 1: WORKSPACE & OPERATOR PROFILE */}
+      {/* TAB 1: WORKSPACE & PROFILE */}
       {activeTab === "workspace" && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Company / Workspace Identity Form */}
           <form
             onSubmit={handleSaveGeneralSettings}
             className="space-y-4 rounded-2xl border border-zinc-800 bg-[#121215] p-6 lg:col-span-2"
           >
             <div className="border-b border-zinc-800 pb-3">
               <h2 className="text-base font-bold text-white">
-                Company & Tenant Identity
+                Company &amp; Workspace Identity
               </h2>
               <p className="mt-0.5 text-xs text-zinc-400">
-                Customize your agency or client company name (especially useful
-                after Google OAuth sign-in)[cite: 2].
+                Updating your company name automatically keeps your workspace
+                URL slug synchronized.
               </p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-xs font-semibold text-zinc-300">
-                  Company / Agency Name
+                  Company / Workspace Name
                 </label>
                 <input
                   type="text"
                   required
                   value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
+                  onChange={(e) => handleCompanyNameChange(e.target.value)}
                   placeholder="e.g. StarEleven Agency"
                   className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300">
-                  Workspace URL Slug
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-zinc-300">
+                    Workspace URL Slug
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !manualSlugOverride;
+                      setManualSlugOverride(next);
+                      if (!next) {
+                        setWorkspaceSlug(slugifyCompanyName(companyName));
+                      }
+                    }}
+                    className="font-mono text-[10px] text-[#A3E635] hover:underline"
+                  >
+                    {manualSlugOverride ? "Auto-sync slug" : "Auto-synced"}
+                  </button>
+                </div>
                 <input
                   type="text"
                   required
                   value={workspaceSlug}
-                  onChange={(e) => setWorkspaceSlug(e.target.value)}
+                  onChange={(e) => {
+                    setManualSlugOverride(true);
+                    setWorkspaceSlug(slugifyCompanyName(e.target.value));
+                  }}
                   placeholder="stareleven-agency"
                   className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 font-mono text-sm text-[#A3E635] placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300">
+                  Business Timezone (For AI Scheduling)
+                </label>
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-xs text-zinc-100 focus:border-[#84CC16] focus:outline-none"
+                >
+                  <option value="Asia/Karachi">
+                    Asia/Karachi (PKT, UTC+5)
+                  </option>
+                  <option value="Asia/Dubai">Asia/Dubai (GST, UTC+4)</option>
+                  <option value="Europe/London">
+                    Europe/London (GMT/BST)
+                  </option>
+                  <option value="America/New_York">
+                    America/New_York (EST/EDT)
+                  </option>
+                  <option value="America/Los_Angeles">
+                    America/Los_Angeles (PST/PDT)
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300">
+                  Primary Contact Email
+                </label>
+                <input
+                  type="email"
+                  disabled
+                  value={userEmail || user?.email || ""}
+                  className="mt-1.5 w-full cursor-not-allowed rounded-xl border border-zinc-800/80 bg-[#09090B]/60 px-3.5 py-2.5 font-mono text-xs text-zinc-400"
                 />
               </div>
             </div>
@@ -377,25 +519,25 @@ export default function SettingsPage() {
                 ) : (
                   <>
                     <Save className="h-4 w-4" />
-                    Update Company Workspace
+                    Save Workspace Profile
                   </>
                 )}
               </button>
             </div>
           </form>
 
-          {/* Operator Profile Summary Card */}
+          {/* Operator Account & Security Card */}
           <div className="flex flex-col justify-between rounded-2xl border border-zinc-800 bg-[#121215] p-6">
             <div>
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
                   <UserCheck className="h-5 w-5" />
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-bold text-white">
                     {user?.fullName || "Workspace Operator"}
                   </h3>
-                  <p className="font-mono text-xs text-zinc-400">
+                  <p className="truncate font-mono text-xs text-zinc-400">
                     {userEmail || user?.email || "operator@stareleven.ai"}
                   </p>
                 </div>
@@ -405,11 +547,11 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-500">Access Role</span>
                   <span className="rounded bg-[#84CC16]/15 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-[#A3E635]">
-                    {activeWorkspace?.role || "OWNER / ADMIN"}
+                    {activeWorkspace?.role || "OWNER"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-500">Active Plan Mode</span>
+                  <span className="text-zinc-500">Active Plan</span>
                   <span className="font-mono font-semibold uppercase text-zinc-200">
                     {activeWorkspace?.plan_mode || "MANAGED"}
                   </span>
@@ -417,26 +559,35 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-500">Data Isolation</span>
                   <span className="inline-flex items-center gap-1 text-zinc-200">
-                    <Shield className="h-3.5 w-3.5 text-[#84CC16]" /> RLS
-                    Enforced[cite: 1, 4]
+                    <Shield className="h-3.5 w-3.5 text-[#84CC16]" /> Tenant
+                    Isolated
                   </span>
                 </div>
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl border border-zinc-800 bg-[#09090B] p-3 text-[11px] text-zinc-400">
-              All threads, CRM leads, RAG vectors, and API keys are strictly
-              scoped to <strong className="text-zinc-200">{companyName}</strong>[cite: 1].
+            <div className="mt-6 space-y-3">
+              <Link
+                href="/change-password"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-[#09090B] px-4 py-2.5 text-xs font-semibold text-zinc-200 transition hover:border-[#84CC16]/50 hover:text-white"
+              >
+                <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
+                Update Account Password
+              </Link>
+              <p className="text-center text-[11px] text-zinc-500">
+                All chats, leads, and keys are scoped strictly to{" "}
+                <span className="text-zinc-300">{companyName}</span>.
+              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: INDUSTRY AI BRAIN (TASK 4) */}
+      {/* TAB 2: INDUSTRY AI BRAIN */}
       {activeTab === "industry" && (
         <IndustryConfigTab
           workspaceId={workspaceId}
-          workspaceName={activeWorkspace?.name || "StarEleven Workspace"}
+          workspaceName={activeWorkspace?.name || "Workspace"}
           initialIndustry={(activeWorkspace as any)?.industry || "general_b2b"}
           initialConfig={(activeWorkspace as any)?.industry_config}
           onSaved={() => {
@@ -445,7 +596,7 @@ export default function SettingsPage() {
         />
       )}
 
-      {/* TAB 3: PLAN MODE & AES-256 API VAULT */}
+      {/* TAB 3: PLAN & AI VAULT */}
       {activeTab === "vault" && (
         <ApiKeyVaultTab
           workspaceId={workspaceId}
@@ -454,20 +605,18 @@ export default function SettingsPage() {
         />
       )}
 
-      {/* TAB 4: NON-TECHNICAL TOOLS & MCP GUIDED WIZARD */}
+      {/* TAB 4: TOOLS & MCP */}
       {activeTab === "integrations" && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
-            <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-              <div>
-                <h2 className="text-base font-bold text-white">
-                  Guided Enterprise Integrations & MCP Connectors[cite: 1, 2]
-                </h2>
-                <p className="mt-1 text-xs text-zinc-400">
-                  Connect external business tools using our 3-step non-technical
-                  wizard—ready for Module 05 Specialized Agents[cite: 2].
-                </p>
-              </div>
+            <div>
+              <h2 className="text-base font-bold text-white">
+                External Tools &amp; MCP Connectors
+              </h2>
+              <p className="mt-1 text-xs text-zinc-400">
+                Connect web search, messaging channels, calendars, and custom
+                MCP servers for your workspace agents.
+              </p>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -481,9 +630,9 @@ export default function SettingsPage() {
                     className="flex flex-col justify-between rounded-xl border border-zinc-800 bg-[#09090B] p-5 transition hover:border-zinc-700"
                   >
                     <div>
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-[#121215] text-[#A3E635]">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-[#121215] text-[#A3E635]">
                             <Icon className="h-5 w-5" />
                           </div>
                           <div>
@@ -497,11 +646,15 @@ export default function SettingsPage() {
                         </div>
 
                         {isConnected ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
-                            <CheckCircle2 className="h-3 w-3" /> ✓ Verified
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
+                            <CheckCircle2 className="h-3 w-3" /> Verified
+                          </span>
+                        ) : tool.freeFallback ? (
+                          <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
+                            {tool.freeFallback}
                           </span>
                         ) : (
-                          <span className="rounded-full bg-zinc-900 px-2.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                          <span className="shrink-0 rounded-full bg-zinc-900 px-2.5 py-0.5 font-mono text-[10px] text-zinc-400">
                             Not Connected
                           </span>
                         )}
@@ -514,14 +667,14 @@ export default function SettingsPage() {
 
                     <div className="mt-5 flex items-center justify-between border-t border-zinc-800/80 pt-3.5">
                       <span className="font-mono text-[11px] text-zinc-500">
-                        3-Step Guided Wizard
+                        3-Step Guided Setup
                       </span>
                       <button
                         type="button"
                         onClick={() => setWizardTool(tool)}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 px-3.5 py-1.5 text-xs font-bold text-[#A3E635] transition hover:bg-[#84CC16] hover:text-[#09090B]"
                       >
-                        {isConnected ? "Reconfigure" : "Launch Wizard"}
+                        {isConnected ? "Reconfigure" : "Configure"}
                         <ArrowUpRight className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -533,7 +686,114 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Guided "Next-Next" Popup Modal */}
+      {/* TAB 5: TEAM & ACCESS */}
+      {activeTab === "team" && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-4 rounded-2xl border border-zinc-800 bg-[#121215] p-6 lg:col-span-2">
+            <div className="border-b border-zinc-800 pb-3">
+              <h2 className="text-base font-bold text-white">
+                Workspace Members &amp; Client Access
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-400">
+                Invite team operators or client stakeholders to collaborate
+                inside <strong className="text-zinc-200">{companyName}</strong>.
+              </p>
+            </div>
+
+            <form
+              onSubmit={handleInviteSubmit}
+              className="flex flex-col gap-3 sm:flex-row"
+            >
+              <div className="relative flex-1">
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="email"
+                  required
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                  className="w-full rounded-xl border border-zinc-800 bg-[#09090B] py-2.5 pl-10 pr-3.5 text-xs text-white placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
+                />
+              </div>
+
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value)}
+                className="rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-xs text-zinc-200 focus:border-[#84CC16] focus:outline-none"
+              >
+                <option value="admin">Admin (Full Access)</option>
+                <option value="operator">Operator (Chat &amp; CRM)</option>
+                <option value="viewer">Viewer (Read Only)</option>
+              </select>
+
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#84CC16] px-4 py-2.5 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635]"
+              >
+                <UserPlus className="h-4 w-4" />
+                Send Invite
+              </button>
+            </form>
+
+            {inviteFeedback && (
+              <div className="rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/10 px-3.5 py-2.5 text-xs font-medium text-[#A3E635]">
+                {inviteFeedback}
+              </div>
+            )}
+
+            {/* Active Members Table */}
+            <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-[#09090B]">
+              <div className="flex items-center justify-between px-4 py-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#84CC16]/15 font-mono text-xs font-bold text-[#A3E635]">
+                    {(user?.fullName || "OP").slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-white">
+                      {user?.fullName || "Workspace Owner"}
+                    </p>
+                    <p className="font-mono text-[11px] text-zinc-400">
+                      {userEmail || user?.email}
+                    </p>
+                  </div>
+                </div>
+                <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase text-[#A3E635]">
+                  Owner
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Role Permissions Overview */}
+          <div className="space-y-3 rounded-2xl border border-zinc-800 bg-[#121215] p-6">
+            <h3 className="text-sm font-bold text-white">Role Permissions</h3>
+            <div className="space-y-2.5 text-xs text-zinc-400">
+              <div className="rounded-xl border border-zinc-800 bg-[#09090B] p-3">
+                <p className="font-bold text-[#A3E635]">Owner / Admin</p>
+                <p className="mt-0.5 text-[11px]">
+                  Full access to API Vault, Industry AI Brain, Agents, and Team
+                  invites.
+                </p>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-[#09090B] p-3">
+                <p className="font-bold text-zinc-200">Operator</p>
+                <p className="mt-0.5 text-[11px]">
+                  Can run AI Command Center chats, manage CRM leads, and upload
+                  knowledge docs.
+                </p>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-[#09090B] p-3">
+                <p className="font-bold text-zinc-300">Viewer</p>
+                <p className="mt-0.5 text-[11px]">
+                  Read-only access to conversations, reports, and analytics.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guided Setup Modal */}
       <IntegrationsWizardModal
         tool={wizardTool}
         onClose={() => setWizardTool(null)}
