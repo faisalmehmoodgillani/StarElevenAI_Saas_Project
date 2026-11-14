@@ -70,6 +70,7 @@ const LLM_PROVIDERS: ProviderVaultItem[] = [
 
 interface ApiKeyVaultTabProps {
   workspaceId: string;
+  userEmail?: string;
   planMode: string;
   managedApproved: boolean;
   managedRequestStatus: string;
@@ -85,6 +86,7 @@ const API_BASE_URL =
 
 export function ApiKeyVaultTab({
   workspaceId,
+  userEmail,
   planMode,
   managedApproved,
   managedRequestStatus,
@@ -135,11 +137,19 @@ export function ApiKeyVaultTab({
         `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(userEmail ? { "X-User-Email": userEmail } : {}),
+          },
           body: JSON.stringify({ plan_mode: "byok" }),
         }
       );
-      if (!res.ok) throw new Error("Could not switch to BYOK mode.");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.detail || `Server error (${res.status}) switching to BYOK.`
+        );
+      }
 
       setActiveMode("byok");
       await onPlanStateUpdated({
@@ -171,11 +181,21 @@ export function ApiKeyVaultTab({
         `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(userEmail ? { "X-User-Email": userEmail } : {}),
+          },
           body: JSON.stringify({ plan_mode: "managed" }),
         }
       );
-      if (!res.ok) throw new Error("Failed to process Managed Plan request.");
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.detail ||
+            `Server returned ${res.status}. Restart FastAPI backend if routes were just updated.`
+        );
+      }
 
       const data = await res.json();
       const approvedNow = Boolean(data.managed_approved);
@@ -204,7 +224,7 @@ export function ApiKeyVaultTab({
         });
         setVaultBanner({
           type: "warning",
-          text: "Managed Plan request submitted! Your workspace remains on BYOK until StarEleven Admin approves your Managed subscription.",
+          text: "Managed Plan request submitted! Admin has been notified via email. Your workspace remains on BYOK until approved.",
         });
       }
     } catch (err: unknown) {
@@ -302,7 +322,7 @@ export function ApiKeyVaultTab({
         )}
 
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Card 1: BYOK (Self-Serve Default) */}
+          {/* Card 1: BYOK */}
           <button
             type="button"
             onClick={handleSelectByok}
@@ -333,7 +353,7 @@ export function ApiKeyVaultTab({
             </div>
           </button>
 
-          {/* Card 2: Fully Managed (Requires Admin Approval) */}
+          {/* Card 2: Fully Managed */}
           <button
             type="button"
             onClick={handleSelectManaged}
@@ -362,12 +382,12 @@ export function ApiKeyVaultTab({
                     <Clock className="h-3 w-3" /> Pending Approval
                   </span>
                 ) : isApproved ? (
-                  <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/10 px-2 py-0.5 text-[10px] font-semibold text-[#A3E635]">
-                    Approved
+                  <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#A3E635]">
+                    Approved — Click to Activate
                   </span>
                 ) : (
                   <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
-                    Approval Required
+                    Request Access
                   </span>
                 )}
               </div>
@@ -380,31 +400,27 @@ export function ApiKeyVaultTab({
         </div>
       </div>
 
-      {/* CONDITIONAL VIEW:
-          - If Fully Managed is ACTIVE -> Hide API Key inputs and show Managed Cloud Status
-          - If BYOK is ACTIVE -> Show AES-256 Encrypted API Key Vault */}
+      {/* Conditional View: Managed Active vs BYOK Vault */}
       {isManagedActive ? (
         <div className="rounded-2xl border border-[#84CC16]/30 bg-[#121215] p-6">
-          <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-3.5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
-                <Server className="h-6 w-6" />
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+              <Server className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-bold text-white">
+                  StarEleven Managed AI Cloud is Active
+                </h3>
+                <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
+                  NO KEYS NEEDED
+                </span>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-white">
-                    StarEleven Managed AI Cloud is Active
-                  </h3>
-                  <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
-                    NO KEYS NEEDED
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-zinc-400">
-                  All AI models (Groq GPT-OSS 20B/120B, Qwen 3, Kimi K2, and
-                  Gemini 2.5) are provisioned automatically for this workspace.
-                  Switch to BYOK anytime if you prefer using your own API keys.
-                </p>
-              </div>
+              <p className="mt-1 text-xs text-zinc-400">
+                All AI models (Groq GPT-OSS 20B/120B, Qwen 3, Kimi K2, and
+                Gemini 2.5) are provisioned automatically for this workspace.
+                Switch to BYOK anytime if you prefer using your own API keys.
+              </p>
             </div>
           </div>
         </div>

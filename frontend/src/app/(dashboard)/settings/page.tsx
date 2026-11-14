@@ -334,25 +334,38 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        {/* Workspace ID Quick Copy Pill */}
-        {workspaceId && (
-          <button
-            type="button"
-            onClick={handleCopyWorkspaceId}
-            className="flex items-center gap-2 self-start rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 font-mono text-xs text-zinc-300 transition hover:border-[#84CC16]/50 sm:self-center"
-            title="Copy Workspace ID"
-          >
-            <span className="text-zinc-500">ID:</span>
-            <span className="max-w-[130px] truncate text-zinc-200">
-              {workspaceId}
-            </span>
-            {copiedId ? (
-              <Check className="h-3.5 w-3.5 text-[#84CC16]" />
-            ) : (
-              <Copy className="h-3.5 w-3.5 text-zinc-400" />
-            )}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+          {(!process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL ||
+            (userEmail || user?.email || "").toLowerCase() ===
+              process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL.toLowerCase()) && (
+            <Link
+              href="/admin"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 px-3.5 py-2 text-xs font-bold text-[#A3E635] transition hover:bg-[#84CC16] hover:text-[#09090B]"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              Admin Approvals
+            </Link>
+          )}
+          {/* Workspace ID Quick Copy Pill */}
+          {workspaceId && (
+            <button
+              type="button"
+              onClick={handleCopyWorkspaceId}
+              className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 font-mono text-xs text-zinc-300 transition hover:border-[#84CC16]/50"
+              title="Copy Workspace ID"
+            >
+              <span className="text-zinc-500">ID:</span>
+              <span className="max-w-[130px] truncate text-zinc-200">
+                {workspaceId}
+              </span>
+              {copiedId ? (
+                <Check className="h-3.5 w-3.5 text-[#84CC16]" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 text-zinc-400" />
+              )}
+            </button>
+          )}
+        </div>     
       </div>
 
       {/* Navigation Tabs */}
@@ -596,10 +609,10 @@ export default function SettingsPage() {
         />
       )}
 
-     {/* TAB 3: PLAN & AI VAULT */}
-      {activeTab === "vault" && (
+     {activeTab === "vault" && (
         <ApiKeyVaultTab
           workspaceId={workspaceId}
+          userEmail={userEmail || user?.email || ""}
           planMode={activeWorkspace?.plan_mode || "byok"}
           managedApproved={Boolean((activeWorkspace as any)?.managed_approved)}
           managedRequestStatus={
