@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
-  KeyRound,
   LogOut,
   MessageSquare,
   Settings,
@@ -55,11 +54,6 @@ const SYSTEM_NAV: NavItem[] = [
     label: "Workspace & Vault",
     href: "/settings",
     icon: Settings,
-  },
-  {
-    label: "Password & Security",
-    href: "/change-password",
-    icon: KeyRound,
   },
 ];
 

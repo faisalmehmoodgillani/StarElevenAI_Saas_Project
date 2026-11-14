@@ -11,6 +11,9 @@ import {
   Lock,
   Loader2,
   Save,
+  Clock,
+  Server,
+  AlertCircle,
 } from "lucide-react";
 
 interface ProviderVaultItem {
@@ -67,8 +70,14 @@ const LLM_PROVIDERS: ProviderVaultItem[] = [
 
 interface ApiKeyVaultTabProps {
   workspaceId: string;
-  planMode: "managed" | "byok" | string;
-  onPlanModeChange: (newMode: "managed" | "byok") => Promise<void>;
+  planMode: string;
+  managedApproved: boolean;
+  managedRequestStatus: string;
+  onPlanStateUpdated: (updated: {
+    plan_mode: "managed" | "byok";
+    managed_approved: boolean;
+    managed_request_status: string;
+  }) => Promise<void>;
 }
 
 const API_BASE_URL =
@@ -77,17 +86,32 @@ const API_BASE_URL =
 export function ApiKeyVaultTab({
   workspaceId,
   planMode,
-  onPlanModeChange,
+  managedApproved,
+  managedRequestStatus,
+  onPlanStateUpdated,
 }: ApiKeyVaultTabProps) {
-  const [selectedMode, setSelectedMode] = useState<"managed" | "byok">(
-    planMode?.toLowerCase() === "byok" ? "byok" : "managed"
+  const [activeMode, setActiveMode] = useState<"managed" | "byok">(
+    planMode?.toLowerCase() === "managed" && managedApproved
+      ? "managed"
+      : "byok"
+  );
+  const [isApproved, setIsApproved] = useState<boolean>(managedApproved);
+  const [requestStatus, setRequestStatus] = useState<string>(
+    managedRequestStatus || "none"
   );
 
   useEffect(() => {
-    setSelectedMode(planMode?.toLowerCase() === "byok" ? "byok" : "managed");
-  }, [planMode]);
+    setIsApproved(managedApproved);
+    setRequestStatus(managedRequestStatus || "none");
+    if (planMode?.toLowerCase() === "managed" && managedApproved) {
+      setActiveMode("managed");
+    } else {
+      setActiveMode("byok");
+    }
+  }, [planMode, managedApproved, managedRequestStatus]);
 
-  const isByok = selectedMode === "byok";
+  const isManagedActive = activeMode === "managed" && isApproved;
+  const isByokActive = !isManagedActive;
 
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
@@ -96,23 +120,98 @@ export function ApiKeyVaultTab({
   );
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
-  const [vaultBanner, setVaultBanner] = useState<string | null>(null);
+  const [vaultBanner, setVaultBanner] = useState<{
+    type: "success" | "warning" | "error";
+    text: string;
+  } | null>(null);
 
-  const handleToggleMode = async (targetMode: "managed" | "byok") => {
-    if (targetMode === selectedMode || switchingMode) return;
-    setSelectedMode(targetMode);
+  const handleSelectByok = async () => {
+    if (isByokActive || switchingMode || !workspaceId) return;
     setSwitchingMode(true);
     setVaultBanner(null);
 
     try {
-      await onPlanModeChange(targetMode);
-      setVaultBanner(
-        targetMode === "byok"
-          ? "BYOK Mode active — agents will use your workspace's encrypted LLM keys."
-          : "Fully Managed Mode active — agents run on StarEleven cloud infrastructure."
+      const res = await fetch(
+        `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan_mode: "byok" }),
+        }
       );
-    } catch {
-      setVaultBanner("Could not update plan mode. Please try again.");
+      if (!res.ok) throw new Error("Could not switch to BYOK mode.");
+
+      setActiveMode("byok");
+      await onPlanStateUpdated({
+        plan_mode: "byok",
+        managed_approved: isApproved,
+        managed_request_status: requestStatus,
+      });
+      setVaultBanner({
+        type: "success",
+        text: "BYOK Mode is now ACTIVE. Enter your own LLM API keys below.",
+      });
+    } catch (err: unknown) {
+      setVaultBanner({
+        type: "error",
+        text: err instanceof Error ? err.message : "Failed to switch mode.",
+      });
+    } finally {
+      setSwitchingMode(false);
+    }
+  };
+
+  const handleSelectManaged = async () => {
+    if (isManagedActive || switchingMode || !workspaceId) return;
+    setSwitchingMode(true);
+    setVaultBanner(null);
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan_mode: "managed" }),
+        }
+      );
+      if (!res.ok) throw new Error("Failed to process Managed Plan request.");
+
+      const data = await res.json();
+      const approvedNow = Boolean(data.managed_approved);
+      const statusNow = data.managed_request_status || "pending";
+
+      setIsApproved(approvedNow);
+      setRequestStatus(statusNow);
+
+      if (approvedNow) {
+        setActiveMode("managed");
+        await onPlanStateUpdated({
+          plan_mode: "managed",
+          managed_approved: true,
+          managed_request_status: "approved",
+        });
+        setVaultBanner({
+          type: "success",
+          text: "Fully Managed Plan is now ACTIVE. Your agents run on StarEleven cloud infrastructure.",
+        });
+      } else {
+        setActiveMode("byok");
+        await onPlanStateUpdated({
+          plan_mode: "byok",
+          managed_approved: false,
+          managed_request_status: statusNow,
+        });
+        setVaultBanner({
+          type: "warning",
+          text: "Managed Plan request submitted! Your workspace remains on BYOK until StarEleven Admin approves your Managed subscription.",
+        });
+      }
+    } catch (err: unknown) {
+      setVaultBanner({
+        type: "error",
+        text: err instanceof Error ? err.message : "Request failed.",
+      });
     } finally {
       setSwitchingMode(false);
     }
@@ -148,15 +247,18 @@ export function ApiKeyVaultTab({
 
       setSavedProviders((prev) => ({ ...prev, [provider.id]: true }));
       setKeys((prev) => ({ ...prev, [provider.id]: "" }));
-      setVaultBanner(
-        `${provider.name} API key encrypted with AES-256 and stored securely.`
-      );
+      setVaultBanner({
+        type: "success",
+        text: `${provider.name} API key encrypted with AES-256 and saved to your workspace.`,
+      });
     } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Could not store key. Check backend connection.";
-      setVaultBanner(message);
+      setVaultBanner({
+        type: "error",
+        text:
+          err instanceof Error
+            ? err.message
+            : "Could not store key. Check backend connection.",
+      });
     } finally {
       setSavingProvider(null);
     }
@@ -164,203 +266,256 @@ export function ApiKeyVaultTab({
 
   return (
     <div className="space-y-6">
-      {/* AI Infrastructure Mode Switcher */}
+      {/* Mode Selection Cards */}
       <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-base font-bold text-white">
-              AI Execution & Billing Mode
+              AI Execution &amp; Billing Mode
             </h2>
             <p className="mt-1 text-xs text-zinc-400">
-              Choose whether this workspace runs on StarEleven&apos;s Managed AI
-              cloud or your own LLM provider keys.
+              Use your own API keys immediately via BYOK, or request an approved
+              StarEleven Managed subscription.
             </p>
           </div>
           {switchingMode && (
             <span className="inline-flex items-center gap-1.5 text-xs text-[#A3E635]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Saving Mode...
+              Updating...
             </span>
           )}
         </div>
 
+        {vaultBanner && (
+          <div
+            className={`mt-4 flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-medium ${
+              vaultBanner.type === "success"
+                ? "border-[#84CC16]/40 bg-[#84CC16]/10 text-[#A3E635]"
+                : vaultBanner.type === "warning"
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+            }`}
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{vaultBanner.text}</span>
+          </div>
+        )}
+
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Option 1: Fully Managed */}
+          {/* Card 1: BYOK (Self-Serve Default) */}
           <button
             type="button"
-            onClick={() => handleToggleMode("managed")}
+            onClick={handleSelectByok}
             className={`flex items-start gap-3.5 rounded-xl border p-4 text-left transition-all ${
-              !isByok
+              isByokActive
                 ? "border-[#84CC16] bg-[#84CC16]/10 shadow-[0_0_20px_rgba(132,204,22,0.12)]"
                 : "border-zinc-800 bg-[#09090B] hover:border-zinc-700"
             }`}
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-white">
-                  Fully Managed Plan
-                </span>
-                {!isByok && (
-                  <span className="rounded-full bg-[#84CC16] px-2 py-0.5 text-[10px] font-bold text-[#09090B]">
-                    ACTIVE
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-                Zero setup required. Agents execute immediately using built-in
-                enterprise LLM models without managing API keys.
-              </p>
-            </div>
-          </button>
-
-          {/* Option 2: BYOK */}
-          <button
-            type="button"
-            onClick={() => handleToggleMode("byok")}
-            className={`flex items-start gap-3.5 rounded-xl border p-4 text-left transition-all ${
-              isByok
-                ? "border-amber-400 bg-amber-500/10 shadow-[0_0_20px_rgba(245,158,11,0.12)]"
-                : "border-zinc-800 bg-[#09090B] hover:border-zinc-700"
-            }`}
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-500/40 bg-amber-500/15 text-amber-300">
               <KeyRound className="h-5 w-5" />
             </div>
             <div className="flex-1">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-bold text-white">
                   BYOK (Bring Your Own Key)
                 </span>
-                {isByok && (
-                  <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-[#09090B]">
+                {isByokActive && (
+                  <span className="rounded-full bg-[#84CC16] px-2.5 py-0.5 text-[10px] font-bold text-[#09090B]">
                     ACTIVE
                   </span>
                 )}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-                Connect your own Groq, Gemini, OpenAI, Claude, or OpenRouter
-                keys. Encrypted with AES-256 and isolated to this workspace.
+                Supply your own Groq, Gemini, OpenAI, Claude, or OpenRouter API
+                keys. Encrypted with AES-256 and ready immediately.
+              </p>
+            </div>
+          </button>
+
+          {/* Card 2: Fully Managed (Requires Admin Approval) */}
+          <button
+            type="button"
+            onClick={handleSelectManaged}
+            className={`flex items-start gap-3.5 rounded-xl border p-4 text-left transition-all ${
+              isManagedActive
+                ? "border-[#84CC16] bg-[#84CC16]/10 shadow-[0_0_20px_rgba(132,204,22,0.12)]"
+                : requestStatus === "pending"
+                ? "border-amber-500/50 bg-amber-500/5"
+                : "border-zinc-800 bg-[#09090B] hover:border-zinc-700"
+            }`}
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 text-[#A3E635]">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-bold text-white">
+                  Fully Managed Plan
+                </span>
+                {isManagedActive ? (
+                  <span className="rounded-full bg-[#84CC16] px-2.5 py-0.5 text-[10px] font-bold text-[#09090B]">
+                    ACTIVE
+                  </span>
+                ) : requestStatus === "pending" ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-bold text-amber-300">
+                    <Clock className="h-3 w-3" /> Pending Approval
+                  </span>
+                ) : isApproved ? (
+                  <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/10 px-2 py-0.5 text-[10px] font-semibold text-[#A3E635]">
+                    Approved
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                    Approval Required
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                Zero API key management. Run agents directly on StarEleven&apos;s
+                enterprise cloud pool once your workspace plan is approved.
               </p>
             </div>
           </button>
         </div>
       </div>
 
-      {/* AES-256 Encrypted LLM Key Vault */}
-      <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
-        <div className="flex flex-col justify-between gap-2 border-b border-zinc-800 pb-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
-              <ShieldCheck className="h-5 w-5" />
+      {/* CONDITIONAL VIEW:
+          - If Fully Managed is ACTIVE -> Hide API Key inputs and show Managed Cloud Status
+          - If BYOK is ACTIVE -> Show AES-256 Encrypted API Key Vault */}
+      {isManagedActive ? (
+        <div className="rounded-2xl border border-[#84CC16]/30 bg-[#121215] p-6">
+          <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-3.5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                <Server className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-white">
+                    StarEleven Managed AI Cloud is Active
+                  </h3>
+                  <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
+                    NO KEYS NEEDED
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-400">
+                  All AI models (Groq GPT-OSS 20B/120B, Qwen 3, Kimi K2, and
+                  Gemini 2.5) are provisioned automatically for this workspace.
+                  Switch to BYOK anytime if you prefer using your own API keys.
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-base font-bold text-white">
-                AI Model Provider Keys (AES-256 Vault)
-              </h3>
-              <p className="text-xs text-zinc-400">
-                External tool keys (like Web Search & CRM) are managed in the{" "}
-                <strong className="text-zinc-200">Tools &amp; MCP</strong> tab.
-              </p>
-            </div>
-          </div>
-
-          <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-[#09090B] px-3 py-1.5 font-mono text-[11px] text-zinc-300">
-            <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
-            <span>AES-256 Encrypted</span>
           </div>
         </div>
+      ) : (
+        <div className="rounded-2xl border border-zinc-800 bg-[#121215] p-5 sm:p-6">
+          <div className="flex flex-col justify-between gap-2 border-b border-zinc-800 pb-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  BYOK Model Provider Keys (AES-256 Vault)
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Add your own LLM provider keys below. External tools (Web
+                  Search, WhatsApp, MCP) are configured in{" "}
+                  <strong className="text-zinc-200">Tools &amp; MCP</strong>.
+                </p>
+              </div>
+            </div>
 
-        {vaultBanner && (
-          <div className="mt-4 rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/10 px-4 py-2.5 text-xs font-medium text-[#A3E635]">
-            {vaultBanner}
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-[#09090B] px-3 py-1.5 font-mono text-[11px] text-zinc-300">
+              <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
+              <span>AES-256 Encrypted</span>
+            </div>
           </div>
-        )}
 
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {LLM_PROVIDERS.map((item) => {
-            const isVisible = !!visibleKeys[item.id];
-            const isSaved = !!savedProviders[item.id];
-            const isSaving = savingProvider === item.id;
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+            {LLM_PROVIDERS.map((item) => {
+              const isVisible = !!visibleKeys[item.id];
+              const isSaved = !!savedProviders[item.id];
+              const isSaving = savingProvider === item.id;
 
-            return (
-              <div
-                key={item.id}
-                className="flex flex-col justify-between rounded-xl border border-zinc-800 bg-[#09090B] p-4"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-bold text-zinc-100">
-                      {item.name}
-                    </span>
-                    {isSaved ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2 py-0.5 text-[10px] font-semibold text-[#A3E635]">
-                        <CheckCircle2 className="h-3 w-3" /> Encrypted &amp; Saved
+              return (
+                <div
+                  key={item.id}
+                  className="flex flex-col justify-between rounded-xl border border-zinc-800 bg-[#09090B] p-4"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold text-zinc-100">
+                        {item.name}
                       </span>
-                    ) : (
-                      <span className="rounded bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
-                        {item.badge}
-                      </span>
-                    )}
+                      {isSaved ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2 py-0.5 text-[10px] font-semibold text-[#A3E635]">
+                          <CheckCircle2 className="h-3 w-3" /> Encrypted &amp; Saved
+                        </span>
+                      ) : (
+                        <span className="rounded bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-400">{item.subtitle}</p>
                   </div>
-                  <p className="mt-1 text-xs text-zinc-400">{item.subtitle}</p>
-                </div>
 
-                <div className="mt-3.5 flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={isVisible ? "text" : "password"}
-                      value={keys[item.id] || ""}
-                      onChange={(e) =>
-                        setKeys({ ...keys, [item.id]: e.target.value })
-                      }
-                      placeholder={
-                        isSaved
-                          ? "•••••••••••••••••••• (Encrypted in Vault)"
-                          : item.placeholder
-                      }
-                      className="w-full rounded-xl border border-zinc-800 bg-[#121215] py-2 pl-3 pr-9 font-mono text-xs text-zinc-100 placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
-                    />
+                  <div className="mt-3.5 flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={isVisible ? "text" : "password"}
+                        value={keys[item.id] || ""}
+                        onChange={(e) =>
+                          setKeys({ ...keys, [item.id]: e.target.value })
+                        }
+                        placeholder={
+                          isSaved
+                            ? "•••••••••••••••••••• (Encrypted in Vault)"
+                            : item.placeholder
+                        }
+                        className="w-full rounded-xl border border-zinc-800 bg-[#121215] py-2 pl-3 pr-9 font-mono text-xs text-zinc-100 placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVisibleKeys({
+                            ...visibleKeys,
+                            [item.id]: !isVisible,
+                          })
+                        }
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                        aria-label="Toggle key visibility"
+                      >
+                        {isVisible ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() =>
-                        setVisibleKeys({
-                          ...visibleKeys,
-                          [item.id]: !isVisible,
-                        })
-                      }
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                      aria-label="Toggle key visibility"
+                      disabled={!keys[item.id]?.trim() || isSaving}
+                      onClick={() => handleSaveKey(item)}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#84CC16] px-3.5 py-2 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635] disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {isVisible ? (
-                        <EyeOff className="h-3.5 w-3.5" />
+                      {isSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Eye className="h-3.5 w-3.5" />
+                        <Save className="h-3.5 w-3.5" />
                       )}
+                      Save
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    disabled={!keys[item.id]?.trim() || isSaving}
-                    onClick={() => handleSaveKey(item)}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#84CC16] px-3.5 py-2 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {isSaving ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Save className="h-3.5 w-3.5" />
-                    )}
-                    Save
-                  </button>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

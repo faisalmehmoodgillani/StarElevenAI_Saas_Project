@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -27,6 +27,9 @@ class WorkspaceCreateRequest(BaseModel):
     admin_full_name: Optional[str] = Field(
         default=None, description="Administrator full name"
     )
+    plan_mode: Optional[str] = Field(
+        default="byok", description="Default execution mode: byok or managed"
+    )
 
     @model_validator(mode="after")
     def resolve_field_aliases(self):
@@ -42,15 +45,12 @@ class WorkspaceCreateRequest(BaseModel):
 
 
 class WorkspaceUpdateRequest(BaseModel):
-    name: Optional[str] = Field(
-        default=None, min_length=2, description="Updated workspace name"
-    )
-    slug: Optional[str] = Field(
-        default=None, min_length=2, description="Updated workspace slug"
-    )
-    plan_mode: Optional[str] = Field(
-        default=None, description="Subscription mode: managed or byok"
-    )
+    name: Optional[str] = Field(default=None, min_length=2)
+    slug: Optional[str] = Field(default=None, min_length=2)
+    plan_mode: Optional[str] = Field(default=None)
+    managed_request_status: Optional[str] = Field(default=None)
+    industry: Optional[str] = Field(default=None)
+    industry_config: Optional[Dict[str, Any]] = Field(default=None)
 
 
 class WorkspaceCreateResponse(BaseModel):
@@ -59,6 +59,9 @@ class WorkspaceCreateResponse(BaseModel):
     name: str
     workspace_name: str
     slug: str
+    plan_mode: str = "byok"
+    managed_approved: bool = False
+    managed_request_status: str = "none"
     admin_user_id: Optional[str] = None
     admin_email: str
 
@@ -69,6 +72,11 @@ class WorkspaceSummaryItem(BaseModel):
     name: str
     slug: str
     is_active: bool
+    plan_mode: str = "byok"
+    managed_approved: bool = False
+    managed_request_status: str = "none"
+    industry: Optional[str] = "general_b2b"
+    industry_config: Optional[Dict[str, Any]] = None
 
 
 class WorkspaceListResponse(BaseModel):

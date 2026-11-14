@@ -1,174 +1,210 @@
 import uuid
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, text
+from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.api.v1.auth_sync import ensure_workspace_members_table
 from backend.database.connection import get_db
-from backend.database.models import User, Workspace
-from backend.schemas.workspace_schema import (
-    WorkspaceCreateRequest,
-    WorkspaceCreateResponse,
-    WorkspaceListResponse,
-    WorkspaceSummaryItem,
-    WorkspaceUpdateRequest,
-)
-from backend.services.tenant_service import _hash_password, list_workspaces
 
-router = APIRouter(prefix="/workspaces", tags=["Workspaces & Tenants"])
+router = APIRouter(prefix="/auth", tags=["Auth Sync"])
 
 
-@router.post("", response_model=WorkspaceCreateResponse)
-def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(get_db)):
-    """Creates a new tenant workspace and links it to the operator's email."""
-    clean_slug = payload.slug.strip().lower()
-    clean_email = payload.owner_email.strip().lower()
+class SyncWorkspaceRequest(BaseModel):
+    supabase_user_id: str
+    email: str
+    full_name: Optional[str] = None
+    workspace_name: Optional[str] = None
+    slug: Optional[str] = None
+    plan_mode: Optional[str] = "byok"
 
-    existing_slug = db.query(Workspace).filter(Workspace.slug == clean_slug).first()
-    if existing_slug:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Workspace slug '{clean_slug}' is already taken.",
-        )
 
-    ensure_workspace_members_table(db)
-
-    try:
-        workspace = Workspace(
-            name=payload.name.strip(),
-            slug=clean_slug,
-            is_active=True,
-        )
-        db.add(workspace)
-        db.flush()
-
-        existing_user = (
-            db.query(User).filter(func.lower(User.email) == clean_email).first()
-        )
-
-        if not existing_user:
-            hashed_pw = (
-                _hash_password(payload.admin_password)
-                if payload.admin_password
-                else "SUPABASE_AUTH_MANAGED"
+def _ensure_membership_table(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS workspace_members (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_email VARCHAR(255) NOT NULL,
+                role VARCHAR(50) DEFAULT 'owner',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(workspace_id, user_email)
             )
-            admin_user = User(
-                workspace_id=workspace.id,
-                email=clean_email,
-                hashed_password=hashed_pw,
-                full_name=payload.admin_full_name or payload.name.strip(),
-                role="admin",
-            )
-            db.add(admin_user)
-            db.flush()
-            resolved_user_id = str(admin_user.id)
-        else:
-            resolved_user_id = str(existing_user.id)
-
-        db.execute(
-            text(
-                """
-                INSERT INTO workspace_members (workspace_id, user_email, user_id, role)
-                VALUES (
-                    CAST(:wid AS UUID),
-                    CAST(:email AS VARCHAR),
-                    CAST(:uid AS UUID),
-                    'admin'
-                )
-                ON CONFLICT (workspace_id, user_email) WHERE user_email IS NOT NULL
-                DO NOTHING
-                """
-            ),
-            {
-                "wid": str(workspace.id),
-                "email": clean_email,
-                "uid": resolved_user_id,
-            },
+            """
         )
-
-        db.commit()
-        db.refresh(workspace)
-
-        return WorkspaceCreateResponse(
-            id=str(workspace.id),
-            workspace_id=str(workspace.id),
-            name=workspace.name,
-            workspace_name=workspace.name,
-            slug=workspace.slug,
-            admin_user_id=resolved_user_id,
-            admin_email=clean_email,
-        )
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create workspace: {str(e)}",
-        )
+    )
+    db.commit()
 
 
-@router.patch("/{workspace_id}", response_model=WorkspaceSummaryItem)
-def update_workspace(
-    workspace_id: str,
-    payload: WorkspaceUpdateRequest,
+@router.post("/sync-workspace")
+def sync_oauth_or_email_workspace(
+    payload: SyncWorkspaceRequest,
     db: Session = Depends(get_db),
 ):
-    """Updates an existing workspace name, slug, or plan mode."""
-    try:
-        wid = uuid.UUID(workspace_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid workspace_id UUID.")
+    _ensure_membership_table(db)
+    email_clean = payload.email.strip().lower()
 
-    workspace = db.query(Workspace).filter(Workspace.id == wid).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    existing = db.execute(
+        text(
+            """
+            SELECT w.id, w.name, w.slug, w.is_active,
+                   COALESCE(w.plan_mode, 'byok') AS plan_mode,
+                   COALESCE(w.managed_approved, FALSE) AS managed_approved,
+                   COALESCE(w.managed_request_status, 'none') AS managed_request_status,
+                   COALESCE(w.industry, 'general_b2b') AS industry,
+                   w.industry_config
+            FROM workspaces w
+            JOIN workspace_members wm ON wm.workspace_id = w.id
+            WHERE LOWER(wm.user_email) = CAST(:email AS VARCHAR)
+            ORDER BY w.created_at ASC
+            LIMIT 1
+            """
+        ),
+        {"email": email_clean},
+    ).fetchone()
 
-    if payload.slug and payload.slug.strip().lower() != workspace.slug:
-        new_slug = payload.slug.strip().lower()
-        slug_taken = (
-            db.query(Workspace)
-            .filter(Workspace.slug == new_slug, Workspace.id != wid)
-            .first()
-        )
-        if slug_taken:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Workspace slug '{new_slug}' is already taken.",
-            )
-        workspace.slug = new_slug
+    if existing:
+        wid = str(existing.id)
+        return {
+            "id": wid,
+            "workspace_id": wid,
+            "name": existing.name,
+            "slug": existing.slug,
+            "plan_mode": existing.plan_mode,
+            "managed_approved": bool(existing.managed_approved),
+            "managed_request_status": existing.managed_request_status,
+            "industry": existing.industry,
+            "industry_config": existing.industry_config or {},
+        }
 
-    if payload.name:
-        workspace.name = payload.name.strip()
+    new_wid = str(uuid.uuid4())
+    display_name = (
+        payload.workspace_name
+        or (f"{payload.full_name} Workspace" if payload.full_name else None)
+        or f"{email_clean.split('@')[0]} Workspace"
+    )
+    base_slug = (
+        payload.slug
+        or display_name.lower().replace(" ", "-")
+    )
+    unique_slug = f"{base_slug}-{new_wid[:6]}"
+    requested_mode = (payload.plan_mode or "byok").lower()
+    req_status = "pending" if requested_mode == "managed" else "none"
 
-    if payload.plan_mode and hasattr(workspace, "plan_mode"):
-        workspace.plan_mode = payload.plan_mode.strip().lower()
-
-    db.commit()
-    db.refresh(workspace)
-
-    return WorkspaceSummaryItem(
-        id=str(workspace.id),
-        workspace_id=str(workspace.id),
-        name=workspace.name,
-        slug=workspace.slug,
-        is_active=workspace.is_active,
+    db.execute(
+        text(
+            """
+            INSERT INTO workspaces (id, name, slug, is_active, plan_mode, managed_approved, managed_request_status)
+            VALUES (CAST(:wid AS UUID), :name, :slug, TRUE, 'byok', FALSE, :req_status)
+            """
+        ),
+        {
+            "wid": new_wid,
+            "name": display_name,
+            "slug": unique_slug,
+            "req_status": req_status,
+        },
     )
 
+    db.execute(
+        text(
+            """
+            INSERT INTO users (id, workspace_id, email, hashed_password, full_name, role)
+            VALUES (CAST(:uid AS UUID), CAST(:wid AS UUID), CAST(:email AS VARCHAR), 'SUPABASE_AUTH_MANAGED', :full_name, 'admin')
+            ON CONFLICT (email) DO NOTHING
+            """
+        ),
+        {
+            "uid": str(uuid.uuid4()),
+            "wid": new_wid,
+            "email": email_clean,
+            "full_name": payload.full_name or display_name,
+        },
+    )
 
-@router.get("", response_model=WorkspaceListResponse)
-def get_all_workspaces(db: Session = Depends(get_db)):
-    """Lists all registered workspaces from Supabase."""
-    raw_list = list_workspaces(db)
-    items = [
-        WorkspaceSummaryItem(
-            id=w["workspace_id"],
-            workspace_id=w["workspace_id"],
-            name=w["name"],
-            slug=w["slug"],
-            is_active=w["is_active"],
-        )
-        for w in raw_list
-    ]
-    return WorkspaceListResponse(workspaces=items)
+    db.execute(
+        text(
+            """
+            INSERT INTO workspace_members (workspace_id, user_email, role)
+            VALUES (CAST(:wid AS UUID), CAST(:email AS VARCHAR), 'owner')
+            ON CONFLICT (workspace_id, user_email) DO NOTHING
+            """
+        ),
+        {"wid": new_wid, "email": email_clean},
+    )
+    db.commit()
+
+    return {
+        "id": new_wid,
+        "workspace_id": new_wid,
+        "name": display_name,
+        "slug": unique_slug,
+        "plan_mode": "byok",
+        "managed_approved": False,
+        "managed_request_status": req_status,
+        "industry": "general_b2b",
+        "industry_config": {},
+    }
+
+
+@router.get("/my-workspaces")
+def get_my_workspaces(email: str, db: Session = Depends(get_db)):
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    _ensure_membership_table(db)
+    email_clean = email.strip().lower()
+
+    # Backfill membership if user exists in users table
+    db.execute(
+        text(
+            """
+            INSERT INTO workspace_members (workspace_id, user_email, role)
+            SELECT workspace_id, LOWER(email), COALESCE(role, 'owner')
+            FROM users
+            WHERE LOWER(email) = CAST(:email AS VARCHAR)
+            ON CONFLICT (workspace_id, user_email) DO NOTHING
+            """
+        ),
+        {"email": email_clean},
+    )
+    db.commit()
+
+    rows = db.execute(
+        text(
+            """
+            SELECT w.id, w.name, w.slug, w.is_active,
+                   COALESCE(w.plan_mode, 'byok') AS plan_mode,
+                   COALESCE(w.managed_approved, FALSE) AS managed_approved,
+                   COALESCE(w.managed_request_status, 'none') AS managed_request_status,
+                   COALESCE(w.industry, 'general_b2b') AS industry,
+                   w.industry_config,
+                   wm.role
+            FROM workspaces w
+            JOIN workspace_members wm ON wm.workspace_id = w.id
+            WHERE LOWER(wm.user_email) = CAST(:email AS VARCHAR)
+            ORDER BY w.created_at ASC
+            """
+        ),
+        {"email": email_clean},
+    ).fetchall()
+
+    return {
+        "workspaces": [
+            {
+                "id": str(r.id),
+                "workspace_id": str(r.id),
+                "name": r.name,
+                "slug": r.slug,
+                "is_active": bool(r.is_active),
+                "plan_mode": r.plan_mode,
+                "managed_approved": bool(r.managed_approved),
+                "managed_request_status": r.managed_request_status,
+                "industry": r.industry,
+                "industry_config": r.industry_config if isinstance(r.industry_config, dict) else {},
+                "role": r.role or "owner",
+            }
+            for r in rows
+        ]
+    }

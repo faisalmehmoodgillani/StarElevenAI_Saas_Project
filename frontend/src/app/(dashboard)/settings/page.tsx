@@ -596,12 +596,18 @@ export default function SettingsPage() {
         />
       )}
 
-      {/* TAB 3: PLAN & AI VAULT */}
+     {/* TAB 3: PLAN & AI VAULT */}
       {activeTab === "vault" && (
         <ApiKeyVaultTab
           workspaceId={workspaceId}
-          planMode={activeWorkspace?.plan_mode || "managed"}
-          onPlanModeChange={handlePlanModeUpdate}
+          planMode={activeWorkspace?.plan_mode || "byok"}
+          managedApproved={Boolean((activeWorkspace as any)?.managed_approved)}
+          managedRequestStatus={
+            (activeWorkspace as any)?.managed_request_status || "none"
+          }
+          onPlanStateUpdated={async () => {
+            await refreshWorkspaces();
+          }}
         />
       )}
 
