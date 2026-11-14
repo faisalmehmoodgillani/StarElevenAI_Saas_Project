@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.database.session import get_db
+from backend.database.connection import get_db
 
 load_dotenv()
 
