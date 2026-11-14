@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   ShieldCheck,
   KeyRound,
@@ -14,6 +14,7 @@ import {
   Clock,
   Server,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 
 interface ProviderVaultItem {
@@ -23,6 +24,15 @@ interface ProviderVaultItem {
   placeholder: string;
   badge: string;
   defaultModel: string;
+}
+
+interface SavedVaultKey {
+  agent_config_id: string;
+  workspace_id: string;
+  agent_type: string;
+  provider: string;
+  model_name: string;
+  has_custom_encrypted_key: boolean;
 }
 
 const LLM_PROVIDERS: ProviderVaultItem[] = [
@@ -81,8 +91,9 @@ interface ApiKeyVaultTabProps {
   }) => Promise<void>;
 }
 
-const API_BASE_URL =
+const RAW_API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_BASE_URL = RAW_API_URL.replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
 
 export function ApiKeyVaultTab({
   workspaceId,
@@ -120,12 +131,50 @@ export function ApiKeyVaultTab({
   const [savedProviders, setSavedProviders] = useState<Record<string, boolean>>(
     {}
   );
+  const [savedKeys, setSavedKeys] = useState<SavedVaultKey[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState<boolean>(false);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
+  const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
   const [vaultBanner, setVaultBanner] = useState<{
     type: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+
+  const fetchSavedVaultKeys = useCallback(async () => {
+    if (!workspaceId) return;
+    setLoadingKeys(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/agents/${workspaceId}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const configs: SavedVaultKey[] = Array.isArray(data.configs)
+        ? data.configs
+        : [];
+      const activeVaultKeys = configs.filter(
+        (c) => c.has_custom_encrypted_key
+      );
+
+      setSavedKeys(activeVaultKeys);
+
+      const providerMap: Record<string, boolean> = {};
+      for (const item of activeVaultKeys) {
+        if (item.provider) {
+          providerMap[item.provider.toLowerCase()] = true;
+        }
+      }
+      setSavedProviders(providerMap);
+    } catch {
+      // Silently ignore network errors during initial load
+    } finally {
+      setLoadingKeys(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    void fetchSavedVaultKeys();
+  }, [fetchSavedVaultKeys]);
 
   const handleSelectByok = async () => {
     if (isByokActive || switchingMode || !workspaceId) return;
@@ -262,11 +311,14 @@ export function ApiKeyVaultTab({
       });
 
       if (!res.ok) {
-        throw new Error("Failed to encrypt and save API key.");
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.detail || "Failed to encrypt and save API key."
+        );
       }
 
-      setSavedProviders((prev) => ({ ...prev, [provider.id]: true }));
       setKeys((prev) => ({ ...prev, [provider.id]: "" }));
+      await fetchSavedVaultKeys();
       setVaultBanner({
         type: "success",
         text: `${provider.name} API key encrypted with AES-256 and saved to your workspace.`,
@@ -281,6 +333,50 @@ export function ApiKeyVaultTab({
       });
     } finally {
       setSavingProvider(null);
+    }
+  };
+
+  const handleDeleteVaultKey = async (
+    configId: string,
+    providerLabel?: string
+  ) => {
+    if (!workspaceId || !configId || deletingKeyId) return;
+
+    setDeletingKeyId(configId);
+    setVaultBanner(null);
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/v1/agents/${workspaceId}/keys/${configId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.detail || "Failed to delete stored API key from vault."
+        );
+      }
+
+      await fetchSavedVaultKeys();
+      setVaultBanner({
+        type: "success",
+        text: `${
+          providerLabel ? providerLabel.toUpperCase() : "Vault"
+        } API key permanently deleted from your workspace.`,
+      });
+    } catch (err: unknown) {
+      setVaultBanner({
+        type: "error",
+        text:
+          err instanceof Error
+            ? err.message
+            : "Could not delete key. Check backend connection.",
+      });
+    } finally {
+      setDeletingKeyId(null);
     }
   };
 
@@ -444,7 +540,11 @@ export function ApiKeyVaultTab({
             </div>
 
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-[#09090B] px-3 py-1.5 font-mono text-[11px] text-zinc-300">
-              <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
+              {loadingKeys ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#84CC16]" />
+              ) : (
+                <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
+              )}
               <span>AES-256 Encrypted</span>
             </div>
           </div>
@@ -454,6 +554,12 @@ export function ApiKeyVaultTab({
               const isVisible = !!visibleKeys[item.id];
               const isSaved = !!savedProviders[item.id];
               const isSaving = savingProvider === item.id;
+              const matchedSavedKey = savedKeys.find(
+                (k) => k.provider?.toLowerCase() === item.id
+              );
+              const isDeletingThis =
+                matchedSavedKey &&
+                deletingKeyId === matchedSavedKey.agent_config_id;
 
               return (
                 <div
@@ -525,11 +631,90 @@ export function ApiKeyVaultTab({
                       )}
                       Save
                     </button>
+
+                    {matchedSavedKey && (
+                      <button
+                        type="button"
+                        disabled={Boolean(isDeletingThis)}
+                        onClick={() =>
+                          handleDeleteVaultKey(
+                            matchedSavedKey.agent_config_id,
+                            item.name
+                          )
+                        }
+                        title={`Delete ${item.name} API key`}
+                        aria-label={`Delete ${item.name} API key`}
+                        className="inline-flex shrink-0 items-center justify-center rounded-xl border border-rose-500/35 bg-rose-500/10 p-2 text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {isDeletingThis ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Active Saved Keys Summary List */}
+          {savedKeys.length > 0 && (
+            <div className="mt-6 rounded-xl border border-zinc-800 bg-[#09090B] p-4">
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                  Active Encrypted Vault Keys ({savedKeys.length})
+                </p>
+                <span className="font-mono text-[10px] text-zinc-500">
+                  Shared securely with workspace operators
+                </span>
+              </div>
+
+              <div className="mt-3 divide-y divide-zinc-800/80">
+                {savedKeys.map((saved) => {
+                  const isDeleting = deletingKeyId === saved.agent_config_id;
+                  return (
+                    <div
+                      key={saved.agent_config_id}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 first:pt-1 last:pb-1"
+                    >
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="rounded bg-[#84CC16]/15 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-[#A3E635]">
+                          {saved.provider}
+                        </span>
+                        <span className="font-mono text-xs text-zinc-300">
+                          {saved.model_name}
+                        </span>
+                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-300">
+                          AES-256 Encrypted
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isDeleting}
+                        onClick={() =>
+                          handleDeleteVaultKey(
+                            saved.agent_config_id,
+                            saved.provider
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-50"
+                      >
+                        {isDeleting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                        {isDeleting ? "Deleting..." : "Delete Key"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
