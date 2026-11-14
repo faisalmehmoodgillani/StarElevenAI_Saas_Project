@@ -29,7 +29,9 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
     Executes the multi-agent LangGraph workflow synchronously and returns
     the final response along with the selected specialist agent.
     """
-    access = enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+    access = enforce_workspace_llm_access(
+    db, payload.workspace_id, payload.provider, payload.user_id
+)
     resolved_encrypted_key = payload.encrypted_api_key or access.get("encrypted_api_key")
     resolved_provider = access.get("resolved_provider") or payload.provider
 
@@ -69,7 +71,9 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
     Streams agent routing status and LLM response tokens in real time
     using Server-Sent Events (SSE).
     """
-    access = enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+    access = enforce_workspace_llm_access(
+    db, payload.workspace_id, payload.provider, payload.user_id
+)
     resolved_encrypted_key = payload.encrypted_api_key or access.get("encrypted_api_key")
     resolved_provider = access.get("resolved_provider") or payload.provider
 

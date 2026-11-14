@@ -90,3 +90,27 @@ class AgentConfig(Base):
 # ADD COLUMN IF NOT EXISTS industry_config JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 # CREATE INDEX IF NOT EXISTS idx_workspaces_industry ON workspaces (industry);
+
+# Approval Columns Add
+# ALTER TABLE workspaces
+# ADD COLUMN IF NOT EXISTS plan_mode VARCHAR(20) DEFAULT 'byok',
+# ADD COLUMN IF NOT EXISTS managed_approved BOOLEAN DEFAULT FALSE,
+# ADD COLUMN IF NOT EXISTS managed_request_status VARCHAR(20) DEFAULT 'none';
+
+# -- Approve existing workspaces created so far (new signups will default to BYOK + unapproved)
+# UPDATE workspaces
+# SET managed_approved = TRUE,
+#     managed_request_status = 'approved'
+# WHERE managed_approved IS FALSE;
+
+
+# Clean Database Reset
+# TRUNCATE TABLE
+#   checkpoints,
+#   checkpoint_blobs,
+#   checkpoint_writes,
+#   workspace_members,
+#   agent_configs,
+#   users,
+#   workspaces
+# RESTART IDENTITY CASCADE;

@@ -423,21 +423,25 @@ export default function ChatCommandCenterPage() {
             return synced;
           });
         },
-        onError: (errMessage) => {
-          setIsStreaming(false);
-          abortControllerRef.current = null;
+        onError: (errMessage: string) => {
+          const cleanErr =
+            errMessage || "Failed to generate response. Please try again.";
+          const formattedError = cleanErr.includes("Plan & AI Vault")
+            ? `**API Key Required:** ${cleanErr}\n\n[Open Settings → Plan & AI Vault](/settings)`
+            : `**Execution Error:** ${cleanErr}`;
+
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
                 ? {
                     ...m,
+                    content: formattedError,
                     isStreaming: false,
-                    isError: true,
-                    content: `Execution interrupted: ${errMessage}`,
                   }
                 : m
             )
           );
+          setIsStreaming(false);
         },
       }
     );

@@ -209,3 +209,58 @@ def list_workspaces(db: Session) -> list[dict]:
         }
         for w in workspaces
     ]
+
+
+def list_workspace_agent_configs(db: Session, workspace_id: str) -> list[dict]:
+    """Lists configured agents and encrypted vault key status for a workspace."""
+    try:
+        wid = uuid.UUID(str(workspace_id).strip())
+    except ValueError as exc:
+        raise ValueError(f"Invalid workspace_id UUID: {workspace_id}") from exc
+
+    rows = db.execute(
+        text(
+            """
+            SELECT id, agent_type, provider, model_name,
+                   (encrypted_api_key IS NOT NULL AND TRIM(encrypted_api_key) <> '') AS has_key
+            FROM agent_configs
+            WHERE workspace_id = CAST(:wid AS UUID)
+            ORDER BY id DESC
+            """
+        ),
+        {"wid": str(wid)},
+    ).fetchall()
+
+    return [
+        {
+            "agent_config_id": str(r.id),
+            "workspace_id": str(wid),
+            "agent_type": r.agent_type,
+            "provider": r.provider,
+            "model_name": r.model_name,
+            "has_custom_encrypted_key": bool(r.has_key),
+        }
+        for r in rows
+    ]
+
+
+def delete_workspace_api_key(db: Session, workspace_id: str, config_id: str) -> dict:
+    """Revokes and deletes a stored encrypted API key from a workspace agent config."""
+    try:
+        wid = uuid.UUID(str(workspace_id).strip())
+        cid = uuid.UUID(str(config_id).strip())
+    except ValueError as exc:
+        raise ValueError("Invalid workspace_id or config_id UUID.") from exc
+
+    db.execute(
+        text(
+            """
+            DELETE FROM agent_configs
+            WHERE id = CAST(:cid AS UUID)
+              AND workspace_id = CAST(:wid AS UUID)
+            """
+        ),
+        {"cid": str(cid), "wid": str(wid)},
+    )
+    db.commit()
+    return {"ok": True, "deleted_config_id": str(cid)}
