@@ -27,6 +27,10 @@ export interface WorkspaceItem {
   role?: string;
   is_active?: boolean;
   plan_mode?: "managed" | "byok";
+  managed_approved?: boolean;
+  managed_request_status?: "none" | "pending" | "approved" | "rejected";
+  industry?: string;
+  industry_config?: Record<string, unknown>;
 }
 
 export interface LLMModelOption {
@@ -380,14 +384,39 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         }),
       });
 
-      const res = await fetch(
-        `${API_BASE_URL}/api/v1/auth/my-workspaces?email=${encodeURIComponent(
-          email
-        )}`
-      );
+      const [myWsRes, allWsRes] = await Promise.all([
+        fetch(
+          `${API_BASE_URL}/api/v1/auth/my-workspaces?email=${encodeURIComponent(
+            email
+          )}`
+        ),
+        fetch(`${API_BASE_URL}/api/v1/workspaces`).catch(() => null),
+      ]);
 
-      if (res.ok) {
-        const data = await res.json();
+      const planMetaById = new Map<string, Partial<WorkspaceItem>>();
+      if (allWsRes && allWsRes.ok) {
+        const allWsData = await allWsRes.json().catch(() => ({}));
+        const allList: WorkspaceItem[] = Array.isArray(allWsData.workspaces)
+          ? allWsData.workspaces
+          : [];
+        for (const ws of allList) {
+          const key = ws.id || ws.workspace_id;
+          if (key) {
+            planMetaById.set(key, {
+              name: ws.name,
+              slug: ws.slug,
+              plan_mode: ws.plan_mode,
+              managed_approved: Boolean(ws.managed_approved),
+              managed_request_status: ws.managed_request_status || "none",
+              industry: ws.industry,
+              industry_config: ws.industry_config,
+            });
+          }
+        }
+      }
+
+      if (myWsRes.ok) {
+        const data = await myWsRes.json();
         const rawList: WorkspaceItem[] = Array.isArray(data.workspaces)
           ? data.workspaces
           : [];
@@ -396,10 +425,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         for (const item of rawList) {
           const key = item.id || item.workspace_id;
           if (key && !uniqueMap.has(key)) {
+            const liveMeta = planMetaById.get(key) || {};
+            const resolvedApproved = Boolean(
+              liveMeta.managed_approved ?? item.managed_approved
+            );
+            const resolvedPlanMode =
+              liveMeta.plan_mode ||
+              item.plan_mode ||
+              (resolvedApproved ? "managed" : "byok");
+            const resolvedReqStatus =
+              liveMeta.managed_request_status ||
+              item.managed_request_status ||
+              (resolvedApproved ? "approved" : "none");
+
             uniqueMap.set(key, {
               ...item,
+              ...liveMeta,
               id: key,
               workspace_id: key,
+              plan_mode: resolvedPlanMode,
+              managed_approved: resolvedApproved,
+              managed_request_status: resolvedReqStatus,
             });
           }
         }
@@ -478,8 +524,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         workspace_id: newId,
         name: created.name || created.workspace_name || cleanName,
         slug: created.slug || cleanSlug,
-        role: "admin",
+        role: "owner",
         is_active: true,
+        plan_mode: created.plan_mode || "byok",
+        managed_approved: Boolean(created.managed_approved),
+        managed_request_status: created.managed_request_status || "none",
       };
 
       setWorkspaces((prev) => {

@@ -42,7 +42,57 @@ def _ensure_plan_columns(db: Session) -> None:
             """
         )
     )
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS workspace_members (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_email VARCHAR(255) NOT NULL,
+                role VARCHAR(50) DEFAULT 'admin',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (workspace_id, user_email)
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO workspace_members (workspace_id, user_email, role)
+            SELECT u.workspace_id, LOWER(TRIM(u.email)), 'owner'
+            FROM users u
+            WHERE u.workspace_id IS NOT NULL
+              AND u.email IS NOT NULL
+              AND TRIM(u.email) <> ''
+            ON CONFLICT (workspace_id, user_email) DO NOTHING
+            """
+        )
+    )
     db.commit()
+
+
+def _link_workspace_member(
+    db: Session, workspace_id: str, email: str | None, role: str = "owner"
+) -> None:
+    if not email or not email.strip():
+        return
+    clean_email = email.strip().lower()
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO workspace_members (workspace_id, user_email, role)
+                VALUES (CAST(:wid AS UUID), CAST(:email AS VARCHAR), CAST(:role AS VARCHAR))
+                ON CONFLICT (workspace_id, user_email)
+                DO UPDATE SET role = EXCLUDED.role
+                """
+            ),
+            {"wid": workspace_id, "email": clean_email, "role": role},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 @router.post("", response_model=WorkspaceCreateResponse)
@@ -75,6 +125,13 @@ def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(ge
         )
         db.commit()
 
+        _link_workspace_member(
+            db=db,
+            workspace_id=wid,
+            email=payload.owner_email or result.get("admin_email"),
+            role="owner",
+        )
+
         if req_status == "pending":
             send_managed_plan_request_alert(
                 workspace_id=wid,
@@ -99,7 +156,9 @@ def register_workspace(payload: WorkspaceCreateRequest, db: Session = Depends(ge
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create workspace: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create workspace: {str(e)}"
+        )
 
 
 @router.get("", response_model=WorkspaceListResponse)
@@ -131,11 +190,56 @@ def get_all_workspaces(db: Session = Depends(get_db)):
             managed_approved=bool(r.managed_approved),
             managed_request_status=r.managed_request_status,
             industry=r.industry,
-            industry_config=r.industry_config if isinstance(r.industry_config, dict) else {},
+            industry_config=(
+                r.industry_config if isinstance(r.industry_config, dict) else {}
+            ),
         )
         for r in rows
     ]
     return WorkspaceListResponse(workspaces=items)
+
+
+@router.get("/{workspace_id}")
+def get_workspace_detail(workspace_id: str, db: Session = Depends(get_db)):
+    _ensure_plan_columns(db)
+    try:
+        uuid.UUID(workspace_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workspace UUID")
+
+    row = db.execute(
+        text(
+            """
+            SELECT id, name, slug, is_active,
+                   COALESCE(plan_mode, 'byok') AS plan_mode,
+                   COALESCE(managed_approved, FALSE) AS managed_approved,
+                   COALESCE(managed_request_status, 'none') AS managed_request_status,
+                   COALESCE(industry, 'general_b2b') AS industry,
+                   industry_config
+            FROM workspaces
+            WHERE id = CAST(:wid AS UUID)
+            """
+        ),
+        {"wid": workspace_id},
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    return {
+        "id": str(row.id),
+        "workspace_id": str(row.id),
+        "name": row.name,
+        "slug": row.slug,
+        "is_active": bool(row.is_active),
+        "plan_mode": row.plan_mode,
+        "managed_approved": bool(row.managed_approved),
+        "managed_request_status": row.managed_request_status,
+        "industry": row.industry,
+        "industry_config": (
+            row.industry_config if isinstance(row.industry_config, dict) else {}
+        ),
+    }
 
 
 @router.patch("/{workspace_id}")
@@ -167,6 +271,9 @@ def update_workspace(
 
     if not row:
         raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if x_user_email:
+        _link_workspace_member(db=db, workspace_id=workspace_id, email=x_user_email)
 
     new_name = payload.name.strip() if payload.name else row.name
     new_slug = payload.slug.strip() if payload.slug else row.slug
@@ -260,7 +367,26 @@ def admin_workspaces_overview(
                    COALESCE(w.managed_approved, FALSE) AS managed_approved,
                    COALESCE(w.managed_request_status, 'none') AS managed_request_status,
                    COALESCE(
-                       (SELECT u.email FROM users u WHERE u.workspace_id = w.id LIMIT 1),
+                       (
+                           SELECT wm.user_email
+                           FROM workspace_members wm
+                           WHERE wm.workspace_id = w.id
+                             AND wm.user_email IS NOT NULL
+                             AND TRIM(wm.user_email) <> ''
+                           ORDER BY CASE
+                               WHEN LOWER(COALESCE(wm.role, '')) IN ('owner', 'admin') THEN 0
+                               ELSE 1
+                           END
+                           LIMIT 1
+                       ),
+                       (
+                           SELECT u.email
+                           FROM users u
+                           WHERE u.workspace_id = w.id
+                             AND u.email IS NOT NULL
+                             AND TRIM(u.email) <> ''
+                           LIMIT 1
+                       ),
                        'unknown@client.com'
                    ) AS owner_email
             FROM workspaces w

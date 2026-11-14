@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -23,6 +23,7 @@ import {
   Lock,
   UserPlus,
   Mail,
+  Clock,
 } from "lucide-react";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { IndustryConfigTab } from "@/components/settings/IndustryConfigTab";
@@ -39,7 +40,10 @@ type SettingsTab =
   | "integrations"
   | "team";
 
+type ManagedRequestState = "none" | "pending" | "approved";
+
 const TAB_STORAGE_KEY = "stareleven_settings_active_tab";
+const MANAGED_REQ_STORAGE_PREFIX = "stareleven_managed_request_";
 
 const INTEGRATION_TOOLS: (IntegrationToolDef & {
   icon: React.ElementType;
@@ -152,6 +156,9 @@ export default function SettingsPage() {
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem(TAB_STORAGE_KEY, tab);
     }
+    if (tab === "vault" || tab === "workspace") {
+      void refreshWorkspaces();
+    }
   };
 
   // Workspace & Profile State
@@ -166,6 +173,9 @@ export default function SettingsPage() {
   } | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
+  // Managed Plan Approval & Request Access Sync State
+  const [localPendingRequest, setLocalPendingRequest] = useState(false);
+
   // Integrations Wizard State
   const [wizardTool, setWizardTool] = useState<IntegrationToolDef | null>(null);
   const [verifiedTools, setVerifiedTools] = useState<Record<string, boolean>>(
@@ -177,13 +187,72 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState("operator");
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
 
+  const workspaceId =
+    activeWorkspace?.id || activeWorkspace?.workspace_id || "";
+
+  const rawPlanMode = (activeWorkspace?.plan_mode || "byok").toLowerCase();
+  const backendManagedApproved = Boolean(activeWorkspace?.managed_approved);
+  const backendRequestStatus = (
+    activeWorkspace?.managed_request_status || "none"
+  ).toLowerCase();
+
+  const effectiveManagedApproved =
+    rawPlanMode === "managed" ||
+    backendManagedApproved ||
+    backendRequestStatus === "approved";
+
+  const effectivePlanMode: "managed" | "byok" = effectiveManagedApproved
+    ? "managed"
+    : "byok";
+
+  const effectiveManagedRequestStatus: ManagedRequestState =
+    effectiveManagedApproved
+      ? "approved"
+      : backendRequestStatus === "pending" || localPendingRequest
+      ? "pending"
+      : "none";
+
   useEffect(() => {
-    if (activeWorkspace) {
-      setCompanyName(activeWorkspace.name || "");
-      setWorkspaceSlug(activeWorkspace.slug || "");
-      setManualSlugOverride(false);
+    if (!activeWorkspace) return;
+
+    setCompanyName(activeWorkspace.name || "");
+    setWorkspaceSlug(activeWorkspace.slug || "");
+    setManualSlugOverride(false);
+
+    if (typeof window !== "undefined" && workspaceId) {
+      const storageKey = `${MANAGED_REQ_STORAGE_PREFIX}${workspaceId}`;
+      if (effectiveManagedApproved || backendRequestStatus === "rejected") {
+        window.localStorage.removeItem(storageKey);
+        setLocalPendingRequest(false);
+      } else if (backendRequestStatus === "pending") {
+        window.localStorage.setItem(storageKey, "pending");
+        setLocalPendingRequest(true);
+      } else {
+        const stored = window.localStorage.getItem(storageKey);
+        setLocalPendingRequest(stored === "pending");
+      }
     }
-  }, [activeWorkspace]);
+  }, [
+    activeWorkspace,
+    workspaceId,
+    effectiveManagedApproved,
+    backendRequestStatus,
+  ]);
+
+  const handleVaultPlanStateUpdated = useCallback(async () => {
+    if (
+      typeof window !== "undefined" &&
+      workspaceId &&
+      !effectiveManagedApproved
+    ) {
+      window.localStorage.setItem(
+        `${MANAGED_REQ_STORAGE_PREFIX}${workspaceId}`,
+        "pending"
+      );
+      setLocalPendingRequest(true);
+    }
+    await refreshWorkspaces();
+  }, [workspaceId, effectiveManagedApproved, refreshWorkspaces]);
 
   const handleCompanyNameChange = (newName: string) => {
     setCompanyName(newName);
@@ -194,9 +263,6 @@ export default function SettingsPage() {
       }
     }
   };
-
-  const workspaceId =
-    activeWorkspace?.id || (activeWorkspace as any)?.workspace_id || "";
 
   const handleCopyWorkspaceId = () => {
     if (!workspaceId) return;
@@ -253,22 +319,6 @@ export default function SettingsPage() {
     } finally {
       setSavingGeneral(false);
     }
-  };
-
-  const handlePlanModeUpdate = async (newMode: "managed" | "byok") => {
-    if (!workspaceId) return;
-    const res = await fetch(
-      `${API_BASE_URL}/api/v1/workspaces/${workspaceId}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_mode: newMode }),
-      }
-    );
-    if (!res.ok) {
-      throw new Error("Failed to switch plan mode");
-    }
-    await refreshWorkspaces();
   };
 
   const handleInviteSubmit = (e: React.FormEvent) => {
@@ -346,6 +396,7 @@ export default function SettingsPage() {
               Admin Approvals
             </Link>
           )}
+
           {/* Workspace ID Quick Copy Pill */}
           {workspaceId && (
             <button
@@ -365,7 +416,7 @@ export default function SettingsPage() {
               )}
             </button>
           )}
-        </div>     
+        </div>
       </div>
 
       {/* Navigation Tabs */}
@@ -566,7 +617,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-500">Active Plan</span>
                   <span className="font-mono font-semibold uppercase text-zinc-200">
-                    {activeWorkspace?.plan_mode || "MANAGED"}
+                    {effectivePlanMode.toUpperCase()}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -601,27 +652,68 @@ export default function SettingsPage() {
         <IndustryConfigTab
           workspaceId={workspaceId}
           workspaceName={activeWorkspace?.name || "Workspace"}
-          initialIndustry={(activeWorkspace as any)?.industry || "general_b2b"}
-          initialConfig={(activeWorkspace as any)?.industry_config}
+          initialIndustry={activeWorkspace?.industry || "general_b2b"}
+          initialConfig={activeWorkspace?.industry_config}
           onSaved={() => {
-            refreshWorkspaces();
+            void refreshWorkspaces();
           }}
         />
       )}
 
-     {activeTab === "vault" && (
-        <ApiKeyVaultTab
-          workspaceId={workspaceId}
-          userEmail={userEmail || user?.email || ""}
-          planMode={activeWorkspace?.plan_mode || "byok"}
-          managedApproved={Boolean((activeWorkspace as any)?.managed_approved)}
-          managedRequestStatus={
-            (activeWorkspace as any)?.managed_request_status || "none"
-          }
-          onPlanStateUpdated={async () => {
-            await refreshWorkspaces();
-          }}
-        />
+      {/* TAB 3: PLAN & AI VAULT */}
+      {activeTab === "vault" && (
+        <div className="space-y-4">
+          {effectiveManagedRequestStatus === "pending" &&
+            !effectiveManagedApproved && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                <div className="flex items-center gap-2.5">
+                  <Clock className="h-4 w-4 shrink-0 text-amber-400" />
+                  <div>
+                    <p className="font-bold text-amber-300">
+                      Request Access Sent — Pending SuperAdmin Approval
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-amber-200/80">
+                      Your Full Manage upgrade request has been submitted. Once
+                      approved by the platform administrator, Full Manage mode
+                      will activate automatically.
+                    </p>
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full border border-amber-400/40 bg-amber-400/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase text-amber-300">
+                  Request Access
+                </span>
+              </div>
+            )}
+
+          {effectiveManagedApproved && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/10 px-4 py-3 text-xs text-[#A3E635]">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-[#84CC16]" />
+                <div>
+                  <p className="font-bold text-[#A3E635]">
+                    Full Manage Plan Active
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-300">
+                    SuperAdmin approval verified. Platform-managed AI engines
+                    are active for this workspace.
+                  </p>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/20 px-2.5 py-1 font-mono text-[10px] font-bold uppercase text-[#A3E635]">
+                Active
+              </span>
+            </div>
+          )}
+
+          <ApiKeyVaultTab
+            workspaceId={workspaceId}
+            userEmail={userEmail || user?.email || ""}
+            planMode={effectivePlanMode}
+            managedApproved={effectiveManagedApproved}
+            managedRequestStatus={effectiveManagedRequestStatus}
+            onPlanStateUpdated={handleVaultPlanStateUpdated}
+          />
+        </div>
       )}
 
       {/* TAB 4: TOOLS & MCP */}
