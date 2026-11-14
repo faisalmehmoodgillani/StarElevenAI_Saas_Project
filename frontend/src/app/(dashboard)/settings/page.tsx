@@ -183,6 +183,8 @@ export default function SettingsPage() {
   } | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
+  const [industry, setIndustry] = useState("agency");
+
   // Managed Plan Approval & Request Access Sync State
   const [localPendingRequest, setLocalPendingRequest] = useState(false);
 
@@ -252,6 +254,7 @@ export default function SettingsPage() {
     setCompanyName(activeWorkspace.name || "");
     setWorkspaceSlug(activeWorkspace.slug || "");
     setManualSlugOverride(false);
+    setIndustry(activeWorkspace.industry || "agency");
 
     if (typeof window !== "undefined" && workspaceId) {
       const storageKey = `${MANAGED_REQ_STORAGE_PREFIX}${workspaceId}`;
@@ -329,6 +332,7 @@ export default function SettingsPage() {
           body: JSON.stringify({
             name: companyName.trim(),
             slug: finalSlug,
+            industry,
           }),
         }
       );
@@ -683,6 +687,25 @@ export default function SettingsPage() {
                   className="mt-1.5 w-full cursor-not-allowed rounded-xl border border-zinc-800/80 bg-[#09090B]/60 px-3.5 py-2.5 font-mono text-xs text-zinc-400"
                 />
               </div>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300">
+                Primary Business Industry
+              </label>
+              <select
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-sm text-white focus:border-[#84CC16] focus:outline-none"
+              >
+                <option value="agency">Agency &amp; Consulting</option>
+                <option value="real_estate">Real Estate &amp; Property</option>
+                <option value="ecommerce">E-commerce &amp; D2C</option>
+                <option value="healthcare">Healthcare &amp; Clinics</option>
+                <option value="education">Education &amp; EdTech</option>
+                <option value="saas">SaaS &amp; B2B Tech</option>
+                <option value="other">Other Vertical</option>
+              </select>
             </div>
 
             {generalFeedback && (

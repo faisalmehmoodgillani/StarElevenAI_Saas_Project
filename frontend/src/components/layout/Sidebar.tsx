@@ -7,6 +7,7 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   Database,
   LogOut,
   MessageSquare,
@@ -54,6 +55,12 @@ const SYSTEM_NAV: NavItem[] = [
     label: "Workspace & Vault",
     href: "/settings",
     icon: Settings,
+  },
+
+  {
+    label: "Pricing & Quotas",
+    href: "/pricing",
+    icon: CreditCard,
   },
 ];
 

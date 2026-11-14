@@ -15,7 +15,10 @@ from backend.database.checkpointer import (
     get_postgres_checkpointer,
     delete_thread_checkpoints,
 )
-from backend.services.plan_guard import enforce_workspace_llm_access
+from backend.services.plan_guard import (
+    enforce_workspace_llm_access,
+    record_workspace_token_usage,
+)
 
 router = APIRouter(tags=["Multi-Agent Chat"])
 
@@ -52,6 +55,11 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
         final_state = agent_graph.invoke(initial_state, config=config)
         messages = final_state.get("messages", [])
         final_reply = messages[-1].content if messages else "No response generated."
+        record_workspace_token_usage(
+            db,
+            payload.workspace_id,
+            fallback_text=f"{payload.message}\n{final_reply}",
+        )
 
         return ChatResponse(
             thread_id=payload.thread_id,
@@ -92,6 +100,7 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
 
     def event_generator():
         announced_agent = None
+        streamed_chunks: list[str] = []
         try:
             for msg_chunk, metadata in agent_graph.stream(
                 initial_state,
@@ -116,6 +125,18 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
                 if msg_type in ("AIMessageChunk", "ai") and content:
                     token_event = json.dumps({"type": "token", "content": content})
                     yield f"data: {token_event}\n\n"
+                    msg_type = getattr(msg_chunk, "type", "")
+                content = getattr(msg_chunk, "content", "")
+                if msg_type in ("AIMessageChunk", "ai") and content:
+                    streamed_chunks.append(str(content))
+                    token_event = json.dumps({"type": "token", "content": content})
+                    yield f"data: {token_event}\n\n"
+
+            record_workspace_token_usage(
+                db,
+                payload.workspace_id,
+                fallback_text=f"{payload.message}\n{''.join(streamed_chunks)}",
+            )
 
             yield "data: [DONE]\n\n"
         except Exception as e:

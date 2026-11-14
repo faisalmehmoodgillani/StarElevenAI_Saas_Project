@@ -11,6 +11,21 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { LLMProvider } from "@/types/saas";
 
+export type PlanTierId =
+  | "byok_free"
+  | "managed_starter"
+  | "managed_growth"
+  | "managed_enterprise";
+
+export type IndustryId =
+  | "agency"
+  | "real_estate"
+  | "ecommerce"
+  | "healthcare"
+  | "education"
+  | "saas"
+  | "other";
+
 export interface DashboardUser {
   id: string;
   email?: string;
@@ -27,9 +42,17 @@ export interface WorkspaceItem {
   role?: string;
   is_active?: boolean;
   plan_mode?: "managed" | "byok";
+  plan_tier?: PlanTierId;
+  requested_plan_tier?: string | null;
+  billing_interval?: "monthly" | "annual";
   managed_approved?: boolean;
   managed_request_status?: "none" | "pending" | "approved" | "rejected";
-  industry?: string;
+  monthly_token_limit?: number;
+  tokens_used_this_month?: number;
+  remaining_tokens?: number | null;
+  usage_percent?: number;
+  billing_cycle_end?: string | null;
+  industry?: IndustryId | string;
   industry_config?: Record<string, unknown>;
 }
 
@@ -125,7 +148,6 @@ const STORAGE_CUSTOM_MODELS_KEY = "stareleven_custom_models_v1";
 const STORAGE_SELECTED_AGENT_KEY = "stareleven_selected_agent_v1";
 
 export interface WorkspaceContextType {
-  // Multi-Tenant Workspace State
   workspaces: WorkspaceItem[];
   activeWorkspace: WorkspaceItem | null;
   currentWorkspace: WorkspaceItem | null;
@@ -133,11 +155,14 @@ export interface WorkspaceContextType {
   switchWorkspace: (workspaceId: string) => void;
   refreshWorkspaces: () => Promise<void>;
   createWorkspace: {
-    (name: string, slug?: string): Promise<WorkspaceItem | null>;
-    (payload: { name: string; slug?: string }): Promise<WorkspaceItem | null>;
+    (name: string, slug?: string, industry?: string): Promise<WorkspaceItem | null>;
+    (payload: {
+      name: string;
+      slug?: string;
+      industry?: string;
+    }): Promise<WorkspaceItem | null>;
   };
 
-  // Auth & Loading State
   user: DashboardUser | null;
   userEmail: string | null;
   userId: string | null;
@@ -145,7 +170,6 @@ export interface WorkspaceContextType {
   isLoadingWorkspaces: boolean;
   signOut: () => Promise<void>;
 
-  // Active Agent & Hybrid Model State
   selectedAgent: string;
   activeAgent: string;
   setSelectedAgent: (agentId: string) => void;
@@ -160,7 +184,6 @@ export interface WorkspaceContextType {
   ) => LLMModelOption;
   removeCustomModel: (modelId: string) => void;
 
-  // Sidebar & Mobile Drawer State
   isSidebarCollapsed: boolean;
   setIsSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   toggleSidebar: () => void;
@@ -204,15 +227,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] =
     useState<boolean>(false);
 
-  // Hydrate saved model & agent preferences on client mount
   useEffect(() => {
     try {
       const savedCustom = localStorage.getItem(STORAGE_CUSTOM_MODELS_KEY);
       if (savedCustom) {
         const parsedCustom = JSON.parse(savedCustom) as LLMModelOption[];
-        if (Array.isArray(parsedCustom)) {
-          setCustomModels(parsedCustom);
-        }
+        if (Array.isArray(parsedCustom)) setCustomModels(parsedCustom);
       }
 
       const savedModel = localStorage.getItem(STORAGE_SELECTED_MODEL_KEY);
@@ -224,11 +244,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
 
       const savedAgent = localStorage.getItem(STORAGE_SELECTED_AGENT_KEY);
-      if (savedAgent) {
-        setSelectedAgentState(savedAgent);
-      }
+      if (savedAgent) setSelectedAgentState(savedAgent);
     } catch {
-      // Fallback to default model silently
+      // Ignore storage errors
     }
   }, []);
 
@@ -246,9 +264,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const found = workspaces.find(
         (w) => w.id === workspaceId || w.workspace_id === workspaceId
       );
-      if (found) {
-        setActiveWorkspace(found);
-      }
+      if (found) setActiveWorkspace(found);
     },
     [workspaces, setActiveWorkspace]
   );
@@ -328,9 +344,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      if (selectedModel.id === modelId) {
-        setSelectedModel(DEFAULT_MODEL);
-      }
+      if (selectedModel.id === modelId) setSelectedModel(DEFAULT_MODEL);
     },
     [selectedModel.id, setSelectedModel]
   );
@@ -393,7 +407,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         fetch(`${API_BASE_URL}/api/v1/workspaces`).catch(() => null),
       ]);
 
-      const planMetaById = new Map<string, Partial<WorkspaceItem>>();
+      const metaById = new Map<string, Partial<WorkspaceItem>>();
       if (allWsRes && allWsRes.ok) {
         const allWsData = await allWsRes.json().catch(() => ({}));
         const allList: WorkspaceItem[] = Array.isArray(allWsData.workspaces)
@@ -402,14 +416,22 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         for (const ws of allList) {
           const key = ws.id || ws.workspace_id;
           if (key) {
-            planMetaById.set(key, {
+            metaById.set(key, {
               name: ws.name,
               slug: ws.slug,
               plan_mode: ws.plan_mode,
+              plan_tier: ws.plan_tier,
+              requested_plan_tier: ws.requested_plan_tier,
+              billing_interval: ws.billing_interval,
               managed_approved: Boolean(ws.managed_approved),
               managed_request_status: ws.managed_request_status || "none",
-              industry: ws.industry,
-              industry_config: ws.industry_config,
+              monthly_token_limit: Number(ws.monthly_token_limit || 0),
+              tokens_used_this_month: Number(ws.tokens_used_this_month || 0),
+              remaining_tokens: ws.remaining_tokens ?? null,
+              usage_percent: Number(ws.usage_percent || 0),
+              billing_cycle_end: ws.billing_cycle_end || null,
+              industry: ws.industry || "agency",
+              industry_config: ws.industry_config || {},
             });
           }
         }
@@ -425,7 +447,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         for (const item of rawList) {
           const key = item.id || item.workspace_id;
           if (key && !uniqueMap.has(key)) {
-            const liveMeta = planMetaById.get(key) || {};
+            const liveMeta = metaById.get(key) || {};
             const resolvedApproved = Boolean(
               liveMeta.managed_approved ?? item.managed_approved
             );
@@ -433,10 +455,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
               liveMeta.plan_mode ||
               item.plan_mode ||
               (resolvedApproved ? "managed" : "byok");
-            const resolvedReqStatus =
-              liveMeta.managed_request_status ||
-              item.managed_request_status ||
-              (resolvedApproved ? "approved" : "none");
+            const resolvedPlanTier =
+              liveMeta.plan_tier ||
+              item.plan_tier ||
+              (resolvedApproved ? "managed_starter" : "byok_free");
 
             uniqueMap.set(key, {
               ...item,
@@ -444,8 +466,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
               id: key,
               workspace_id: key,
               plan_mode: resolvedPlanMode,
+              plan_tier: resolvedPlanTier,
               managed_approved: resolvedApproved,
-              managed_request_status: resolvedReqStatus,
+              managed_request_status:
+                liveMeta.managed_request_status ||
+                item.managed_request_status ||
+                (resolvedApproved ? "approved" : "none"),
+              monthly_token_limit: Number(
+                liveMeta.monthly_token_limit ?? item.monthly_token_limit ?? 0
+              ),
+              tokens_used_this_month: Number(
+                liveMeta.tokens_used_this_month ?? item.tokens_used_this_month ?? 0
+              ),
+              industry: liveMeta.industry || item.industry || "agency",
             });
           }
         }
@@ -474,8 +507,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const createWorkspace = useCallback(
     async (
-      nameOrPayload: string | { name: string; slug?: string },
-      optionalSlug?: string
+      nameOrPayload:
+        | string
+        | { name: string; slug?: string; industry?: string },
+      optionalSlug?: string,
+      optionalIndustry?: string
     ): Promise<WorkspaceItem | null> => {
       const rawName =
         typeof nameOrPayload === "string"
@@ -485,6 +521,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         typeof nameOrPayload === "string"
           ? optionalSlug
           : nameOrPayload?.slug;
+      const rawIndustry =
+        typeof nameOrPayload === "string"
+          ? optionalIndustry
+          : nameOrPayload?.industry;
 
       if (!rawName || !rawName.trim()) {
         throw new Error("Workspace name is required.");
@@ -509,6 +549,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           slug: cleanSlug,
           owner_email: ownerEmail,
           admin_full_name: user?.fullName || ownerEmail.split("@")[0],
+          industry: rawIndustry || "agency",
+          plan_mode: "byok",
+          plan_tier: "byok_free",
         }),
       });
 
@@ -522,13 +565,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const newItem: WorkspaceItem = {
         id: newId,
         workspace_id: newId,
-        name: created.name || created.workspace_name || cleanName,
+        name: created.name || cleanName,
         slug: created.slug || cleanSlug,
         role: "owner",
         is_active: true,
         plan_mode: created.plan_mode || "byok",
+        plan_tier: created.plan_tier || "byok_free",
         managed_approved: Boolean(created.managed_approved),
         managed_request_status: created.managed_request_status || "none",
+        monthly_token_limit: Number(created.monthly_token_limit || 0),
+        tokens_used_this_month: Number(created.tokens_used_this_month || 0),
+        billing_cycle_end: created.billing_cycle_end || null,
+        industry: created.industry || rawIndustry || "agency",
       };
 
       setWorkspaces((prev) => {

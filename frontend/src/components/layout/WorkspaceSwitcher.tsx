@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Building2,
   Check,
@@ -8,9 +9,20 @@ import {
   Plus,
   Sparkles,
   KeyRound,
+  Lock,
   X,
 } from "lucide-react";
 import { useWorkspace } from "@/context/WorkspaceContext";
+
+const INDUSTRY_OPTIONS = [
+  { value: "agency", label: "Agency & Consulting" },
+  { value: "real_estate", label: "Real Estate & Property" },
+  { value: "ecommerce", label: "E-commerce & D2C" },
+  { value: "healthcare", label: "Healthcare & Clinics" },
+  { value: "education", label: "Education & EdTech" },
+  { value: "saas", label: "SaaS & B2B Tech" },
+  { value: "other", label: "Other Vertical" },
+];
 
 export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }) {
   const {
@@ -24,6 +36,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newName, setNewName] = useState("");
   const [newSlug, setNewSlug] = useState("");
+  const [newIndustry, setNewIndustry] = useState("agency");
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -58,16 +71,28 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
     setCreating(true);
     setErrorMsg("");
 
-    const ok = await createWorkspace(newName.trim(), newSlug.trim());
-    setCreating(false);
+    try {
+      const ok = await createWorkspace({
+        name: newName.trim(),
+        slug: newSlug.trim(),
+        industry: newIndustry,
+      });
 
-    if (ok) {
-      setNewName("");
-      setNewSlug("");
-      setShowCreateModal(false);
-      setOpen(false);
-    } else {
-      setErrorMsg("Could not create workspace. Try a unique slug.");
+      if (ok) {
+        setNewName("");
+        setNewSlug("");
+        setNewIndustry("agency");
+        setShowCreateModal(false);
+        setOpen(false);
+      }
+    } catch (err: unknown) {
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Could not create workspace. Try a unique slug."
+      );
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -75,6 +100,17 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   const canCreateWorkspace =
     workspaces.length === 0 ||
     workspaces.some((ws) => (ws.role || "").toLowerCase() === "owner");
+
+    const ownedWorkspaces = workspaces.filter(
+    (ws) => (ws.role || "").toLowerCase() === "owner"
+  );
+  const hasApprovedManaged = ownedWorkspaces.some(
+    (ws) =>
+      Boolean(ws.managed_approved) ||
+      (ws.plan_mode || "").toLowerCase() === "managed"
+  );
+  const reachedFreeLimit =
+    ownedWorkspaces.length >= 1 && !hasApprovedManaged;
 
   return (
     <>
@@ -175,17 +211,33 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
             {canCreateWorkspace && (
               <>
                 <div className="my-1.5 border-t border-zinc-800" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    setShowCreateModal(true);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-[#A3E635] transition-colors hover:bg-[#84CC16]/15"
-                >
-                  <Plus className="h-4 w-4" />
-                  Create New Workspace
-                </button>
+                {reachedFreeLimit ? (
+                  <Link
+                    href="/pricing"
+                    onClick={() => setOpen(false)}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-500/10"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Lock className="h-3.5 w-3.5" />
+                      Add Client Workspace
+                    </span>
+                    <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[9px] uppercase">
+                      Upgrade
+                    </span>
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      setShowCreateModal(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-[#A3E635] transition-colors hover:bg-[#84CC16]/15"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create New Workspace
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -230,16 +282,19 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
 
               <div>
                 <label className="block text-xs font-medium text-zinc-300">
-                  Workspace Slug
+                  Industry Vertical
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={newSlug}
-                  onChange={(e) => setNewSlug(e.target.value)}
-                  placeholder="stareleven-enterprise"
-                  className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 font-mono text-sm text-[#A3E635] placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
-                />
+                <select
+                  value={newIndustry}
+                  onChange={(e) => setNewIndustry(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-xs text-zinc-100 focus:border-[#84CC16] focus:outline-none"
+                >
+                  {INDUSTRY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {errorMsg && (
