@@ -29,7 +29,9 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
     Executes the multi-agent LangGraph workflow synchronously and returns
     the final response along with the selected specialist agent.
     """
-    enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+    access = enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+    resolved_encrypted_key = payload.encrypted_api_key or access.get("encrypted_api_key")
+    resolved_provider = access.get("resolved_provider") or payload.provider
 
     try:
         scoped_thread_id = f"{payload.workspace_id}:{payload.thread_id}"
@@ -39,9 +41,9 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
             "messages": [HumanMessage(content=payload.message)],
             "workspace_id": payload.workspace_id,
             "user_id": payload.user_id,
-            "provider": payload.provider,
+            "provider": resolved_provider,
             "model_name": payload.model_name,
-            "encrypted_api_key": payload.encrypted_api_key,
+            "encrypted_api_key": resolved_encrypted_key,
             "next_node": "",
         }
 
@@ -67,7 +69,9 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
     Streams agent routing status and LLM response tokens in real time
     using Server-Sent Events (SSE).
     """
-    enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+    access = enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+    resolved_encrypted_key = payload.encrypted_api_key or access.get("encrypted_api_key")
+    resolved_provider = access.get("resolved_provider") or payload.provider
 
     scoped_thread_id = f"{payload.workspace_id}:{payload.thread_id}"
     config = {"configurable": {"thread_id": scoped_thread_id}}
@@ -76,9 +80,9 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
         "messages": [HumanMessage(content=payload.message)],
         "workspace_id": payload.workspace_id,
         "user_id": payload.user_id,
-        "provider": payload.provider,
+        "provider": resolved_provider,
         "model_name": payload.model_name,
-        "encrypted_api_key": payload.encrypted_api_key,
+        "encrypted_api_key": resolved_encrypted_key,
         "next_node": "",
     }
 

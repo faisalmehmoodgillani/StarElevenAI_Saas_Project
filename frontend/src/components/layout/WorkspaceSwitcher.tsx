@@ -72,6 +72,9 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   };
 
   const isByok = activeWorkspace?.plan_mode?.toLowerCase() === "byok";
+  const canCreateWorkspace =
+    workspaces.length === 0 ||
+    workspaces.some((ws) => (ws.role || "").toLowerCase() === "owner");
 
   return (
     <>
@@ -85,7 +88,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
           title={activeWorkspace?.name || "Select Workspace"}
         >
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#84CC16]/15 border border-[#84CC16]/40 text-[#A3E635]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
               <Building2 className="h-4 w-4" />
             </div>
 
@@ -101,8 +104,8 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                   <span
                     className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[10px] font-semibold uppercase tracking-wider ${
                       isByok
-                        ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                        : "bg-[#84CC16]/15 text-[#A3E635] border border-[#84CC16]/30"
+                        ? "border border-amber-500/30 bg-amber-500/15 text-amber-300"
+                        : "border border-[#84CC16]/30 bg-[#84CC16]/15 text-[#A3E635]"
                     }`}
                   >
                     {isByok ? (
@@ -135,6 +138,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
             <div className="max-h-52 space-y-1 overflow-y-auto">
               {workspaces.map((ws, index) => {
                 const isSelected = ws.id === activeWorkspace?.id;
+                const roleLabel = (ws.role || "owner").toUpperCase();
                 return (
                   <button
                     key={`${ws.id || ws.slug || "ws"}-${index}`}
@@ -150,7 +154,12 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                     }`}
                   >
                     <div className="min-w-0 pr-2">
-                      <p className="truncate font-medium">{ws.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate font-medium">{ws.name}</p>
+                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[9px] font-bold text-zinc-400">
+                          {roleLabel}
+                        </span>
+                      </div>
                       <p className="truncate font-mono text-[11px] text-zinc-500">
                         /{ws.slug}
                       </p>
@@ -163,25 +172,28 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
               })}
             </div>
 
-            <div className="my-1.5 border-t border-zinc-800" />
-
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                setShowCreateModal(true);
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-[#A3E635] transition-colors hover:bg-[#84CC16]/15"
-            >
-              <Plus className="h-4 w-4" />
-              Create New Workspace
-            </button>
+            {canCreateWorkspace && (
+              <>
+                <div className="my-1.5 border-t border-zinc-800" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    setShowCreateModal(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-[#A3E635] transition-colors hover:bg-[#84CC16]/15"
+                >
+                  <Plus className="h-4 w-4" />
+                  Create New Workspace
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
 
-      {/* Create Workspace Modal */}
-      {showCreateModal && (
+      {/* Create Workspace Modal (Owners Only) */}
+      {showCreateModal && canCreateWorkspace && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-[#121215] p-6 shadow-2xl">
             <div className="flex items-center justify-between">

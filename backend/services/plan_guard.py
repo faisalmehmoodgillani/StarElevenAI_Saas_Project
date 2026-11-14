@@ -1,9 +1,6 @@
-import logging
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-logger = logging.getLogger(__name__)
 
 
 def enforce_workspace_llm_access(
@@ -12,8 +9,10 @@ def enforce_workspace_llm_access(
     provider: str = "groq",
 ) -> dict:
     """
-    Ensures BYOK workspaces cannot fall back to platform .env master keys
-    unless a personal encrypted API key is saved in the vault.
+    1. If workspace is approved Full Manage -> allow platform .env key.
+    2. If workspace is BYOK -> fetch workspace owner's encrypted_api_key from agent_configs
+       so both Owner and invited Operators can chat without exposing the raw key.
+    3. If BYOK and no key is saved -> block with HTTP 402.
     """
     ws_row = db.execute(
         text(
@@ -32,64 +31,60 @@ def enforce_workspace_llm_access(
     if not ws_row:
         raise HTTPException(status_code=404, detail="Workspace not found.")
 
-    plan_mode = ws_row.plan_mode
-    managed_approved = bool(ws_row.managed_approved)
-
-    # Full Manage mode allowed only if approved
-    if plan_mode == "managed" and managed_approved:
-        return {"mode": "managed", "has_custom_key": False}
+    if ws_row.plan_mode == "managed" and bool(ws_row.managed_approved):
+        return {
+            "mode": "managed",
+            "encrypted_api_key": None,
+            "resolved_provider": (provider or "groq").strip().lower(),
+        }
 
     clean_provider = (provider or "").strip().lower()
-    has_key = False
 
-    # 1. Check agent_configs table for saved encrypted key
+    # 1. Look for matching provider key saved by Workspace Owner
     cfg_row = db.execute(
         text(
             """
-            SELECT 1
+            SELECT provider, encrypted_api_key
             FROM agent_configs
             WHERE workspace_id = CAST(:wid AS UUID)
               AND encrypted_api_key IS NOT NULL
               AND TRIM(encrypted_api_key) <> ''
               AND (:prov = '' OR LOWER(provider) = :prov)
+            ORDER BY id DESC
             LIMIT 1
             """
         ),
         {"wid": workspace_id, "prov": clean_provider},
     ).fetchone()
 
-    if cfg_row:
-        has_key = True
+    # 2. If Operator selected another model/provider, fallback to any active vault key in this workspace
+    if not cfg_row:
+        cfg_row = db.execute(
+            text(
+                """
+                SELECT provider, encrypted_api_key
+                FROM agent_configs
+                WHERE workspace_id = CAST(:wid AS UUID)
+                  AND encrypted_api_key IS NOT NULL
+                  AND TRIM(encrypted_api_key) <> ''
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"wid": workspace_id},
+        ).fetchone()
 
-    # 2. Also check workspace_api_keys table if vault stores keys separately
-    if not has_key:
-        try:
-            vault_row = db.execute(
-                text(
-                    """
-                    SELECT 1
-                    FROM workspace_api_keys
-                    WHERE workspace_id = CAST(:wid AS UUID)
-                      AND encrypted_key IS NOT NULL
-                      AND TRIM(encrypted_key) <> ''
-                      AND (:prov = '' OR LOWER(provider) = :prov)
-                    LIMIT 1
-                    """
-                ),
-                {"wid": workspace_id, "prov": clean_provider},
-            ).fetchone()
-            if vault_row:
-                has_key = True
-        except Exception:
-            db.rollback()
-
-    if not has_key:
+    if not cfg_row or not cfg_row.encrypted_api_key:
         raise HTTPException(
             status_code=402,
             detail=(
-                f"BYOK Mode Active: No API key configured for '{clean_provider or 'selected provider'}'. "
-                "Please save your API key in Settings -> Plan & AI Vault or request Full Manage access."
+                "BYOK Mode Active: Workspace Owner has not configured an API key yet. "
+                "Please ask the Workspace Owner to add an API key in Settings -> Plan & AI Vault."
             ),
         )
 
-    return {"mode": "byok", "has_custom_key": True}
+    return {
+        "mode": "byok",
+        "encrypted_api_key": cfg_row.encrypted_api_key,
+        "resolved_provider": (cfg_row.provider or clean_provider or "groq").strip().lower(),
+    }

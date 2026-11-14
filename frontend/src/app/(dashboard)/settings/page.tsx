@@ -45,8 +45,10 @@ type ManagedRequestState = "none" | "pending" | "approved";
 
 interface TeamMemberItem {
   email: string;
+  full_name?: string | null;
   role: string;
   status: string;
+  is_owner?: boolean;
   created_at?: string | null;
 }
 
@@ -202,6 +204,10 @@ export default function SettingsPage() {
 
   const workspaceId =
     activeWorkspace?.id || activeWorkspace?.workspace_id || "";
+
+  const currentRole = (activeWorkspace?.role || "owner").toLowerCase();
+  const canManageWorkspace =
+    currentRole === "owner" || currentRole === "admin";
 
   const rawPlanMode = (activeWorkspace?.plan_mode || "byok").toLowerCase();
   const backendManagedApproved = Boolean(activeWorkspace?.managed_approved);
@@ -368,7 +374,7 @@ export default function SettingsPage() {
           body: JSON.stringify({
             email: inviteEmail.trim(),
             role: inviteRole,
-            invited_by: userEmail || user?.email || "Workspace Admin",
+            invited_by: userEmail || user?.email || "Workspace Owner",
           }),
         }
       );
@@ -402,17 +408,56 @@ export default function SettingsPage() {
   const handleRemoveMember = async (memberEmail: string) => {
     if (!workspaceId) return;
     try {
-      await fetch(
+      const res = await fetch(
         `${API_BASE_URL}/api/v1/workspaces/${workspaceId}/members/${encodeURIComponent(
           memberEmail
         )}`,
         { method: "DELETE" }
       );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setInviteFeedback({
+          type: "error",
+          text: errData.detail || "Cannot remove this member.",
+        });
+        return;
+      }
       await loadTeamMembers();
     } catch {
       // ignore
     }
   };
+
+  // RBAC Guard: Operators & Viewers cannot access Workspace Settings, Vault, or Team Admin
+  if (activeWorkspace && !canManageWorkspace) {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-lg flex-col items-center justify-center p-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-300">
+          <Lock className="h-6 w-6" />
+        </div>
+        <span className="mt-4 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] font-bold uppercase text-zinc-400">
+          Role: {currentRole.toUpperCase()}
+        </span>
+        <h1 className="mt-3 text-xl font-bold text-white">
+          Workspace Control Center Restricted
+        </h1>
+        <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+          API Vault keys, Industry AI Brain, and Team Access settings are
+          managed exclusively by the Workspace Owner of{" "}
+          <strong className="text-zinc-200">{activeWorkspace.name}</strong>. You
+          already have full access to run AI agents with the workspace&apos;s
+          pre-configured engine.
+        </p>
+        <Link
+          href="/chat"
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#84CC16] px-5 py-2.5 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635]"
+        >
+          Return to AI Command Center
+          <ArrowUpRight className="h-4 w-4" />
+        </Link>
+      </div>
+    );
+  }
 
   const TABS: {
     id: SettingsTab;
@@ -447,11 +492,6 @@ export default function SettingsPage() {
       icon: Users,
     },
   ];
-
-  const ownerEmailLower = (userEmail || user?.email || "").toLowerCase();
-  const filteredMembers = teamMembers.filter(
-    (m) => m.email.toLowerCase() !== ownerEmailLower
-  );
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
@@ -699,7 +739,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-500">Access Role</span>
                   <span className="rounded bg-[#84CC16]/15 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-[#A3E635]">
-                    {activeWorkspace?.role || "OWNER"}
+                    {currentRole.toUpperCase()}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -958,66 +998,73 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Active & Invited Members List */}
+            {/* Single Clean Members List (Owner Protected) */}
             <div className="mt-4 divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800 bg-[#09090B]">
-              {/* Workspace Owner */}
-              <div className="flex items-center justify-between px-4 py-3.5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#84CC16]/15 font-mono text-xs font-bold text-[#A3E635]">
-                    {(user?.fullName || "OP").slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-white">
-                      {user?.fullName || "Workspace Owner"}
-                    </p>
-                    <p className="font-mono text-[11px] text-zinc-400">
-                      {userEmail || user?.email}
-                    </p>
-                  </div>
-                </div>
-                <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase text-[#A3E635]">
-                  Owner
-                </span>
-              </div>
+              {teamMembers.map((member) => {
+                const isWorkspaceOwner =
+                  Boolean(member.is_owner) ||
+                  member.role.toLowerCase() === "owner";
 
-              {/* Invited / Added Team Members */}
-              {filteredMembers.map((member) => (
-                <div
-                  key={member.email}
-                  className="flex items-center justify-between px-4 py-3.5"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-800 font-mono text-xs font-bold text-zinc-200">
-                      {member.email.slice(0, 2).toUpperCase()}
+                return (
+                  <div
+                    key={member.email}
+                    className="flex items-center justify-between px-4 py-3.5"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-9 w-9 items-center justify-center rounded-lg font-mono text-xs font-bold ${
+                          isWorkspaceOwner
+                            ? "bg-[#84CC16]/15 text-[#A3E635]"
+                            : "bg-zinc-800 text-zinc-200"
+                        }`}
+                      >
+                        {(member.full_name || member.email)
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-white">
+                          {member.full_name || member.email}
+                        </p>
+                        <p className="font-mono text-[11px] text-zinc-400">
+                          {member.email}{" "}
+                          {!isWorkspaceOwner && (
+                            <span className="capitalize text-zinc-500">
+                              &bull; {member.status}
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-mono text-xs font-semibold text-white">
-                        {member.email}
-                      </p>
-                      <p className="text-[11px] capitalize text-zinc-500">
-                        Status: {member.status}
-                      </p>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase ${
+                          isWorkspaceOwner
+                            ? "border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]"
+                            : "border border-zinc-700 bg-zinc-900 text-zinc-300"
+                        }`}
+                      >
+                        {isWorkspaceOwner ? "OWNER" : member.role.toUpperCase()}
+                      </span>
+
+                      {!isWorkspaceOwner && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMember(member.email)}
+                          className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-400"
+                          title="Remove member"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase text-zinc-300">
-                      {member.role}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMember(member.email)}
-                      className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-400"
-                      title="Remove member"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Role Permissions Overview */}
           <div className="space-y-3 rounded-2xl border border-zinc-800 bg-[#121215] p-6">
             <h3 className="text-sm font-bold text-white">Role Permissions</h3>
             <div className="space-y-2.5 text-xs text-zinc-400">

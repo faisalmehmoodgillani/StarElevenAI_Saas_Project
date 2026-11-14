@@ -137,6 +137,8 @@ export function Header({ onMenuClick }: HeaderProps) {
     setModelMenuOpen(false);
   };
 
+  const activeRole = (activeWorkspace?.role || "owner").toUpperCase();
+
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-zinc-800/90 bg-[#09090B]/90 px-4 backdrop-blur-md md:px-6">
       {/* Left: Mobile Menu Trigger + Active Workspace Breadcrumb */}
@@ -161,6 +163,11 @@ export function Header({ onMenuClick }: HeaderProps) {
           <span className="max-w-[180px] truncate text-sm font-semibold text-zinc-200">
             {activeWorkspace?.name || "Loading Workspace..."}
           </span>
+          {activeWorkspace && (
+            <span className="rounded-md border border-lime-500/30 bg-lime-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-lime-400">
+              {activeRole}
+            </span>
+          )}
         </div>
       </div>
 
@@ -251,11 +258,11 @@ export function Header({ onMenuClick }: HeaderProps) {
           </button>
 
           {modelMenuOpen && (
-            <div className="absolute right-0 mt-2 w-[340px] sm:w-[390px] rounded-2xl border border-zinc-800 bg-[#121215] p-3 shadow-2xl shadow-black/90">
+            <div className="absolute right-0 mt-2 w-[340px] rounded-2xl border border-zinc-800 bg-[#121215] p-3 shadow-2xl shadow-black/90 sm:w-[390px]">
               <div className="flex items-center justify-between pb-2">
                 <div>
                   <h4 className="text-xs font-semibold text-zinc-100">
-                    AI Brain & Model Selector
+                    AI Brain &amp; Model Selector
                   </h4>
                   <p className="text-[11px] text-zinc-400">
                     Pick a ready preset or enter any custom model ID
@@ -291,7 +298,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                 >
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-lime-400">
                     <SlidersHorizontal className="h-3.5 w-3.5" />
-                    <span>Add & Activate Custom Model</span>
+                    <span>Add &amp; Activate Custom Model</span>
                   </div>
 
                   <div>
@@ -358,7 +365,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                       type="submit"
                       className="rounded-lg bg-lime-500 px-3.5 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-lime-400"
                     >
-                      Save & Use Model
+                      Save &amp; Use Model
                     </button>
                   </div>
                 </form>
