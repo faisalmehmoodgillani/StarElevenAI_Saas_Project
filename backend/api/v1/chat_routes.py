@@ -1,19 +1,21 @@
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
+from sqlalchemy.orm import Session
 
 from backend.agents.router import build_agent_graph
+from backend.database.connection import get_db
 from backend.schemas.chat_schema import (
     ChatRequest,
     ChatResponse,
     ThreadHistoryResponse,
 )
-
 from backend.database.checkpointer import (
     get_postgres_checkpointer,
     delete_thread_checkpoints,
 )
+from backend.services.plan_guard import enforce_workspace_llm_access
 
 router = APIRouter(tags=["Multi-Agent Chat"])
 
@@ -22,11 +24,13 @@ agent_graph = build_agent_graph(use_checkpointer=True)
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat_endpoint(payload: ChatRequest):
+def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
     """
     Executes the multi-agent LangGraph workflow synchronously and returns
     the final response along with the selected specialist agent.
     """
+    enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+
     try:
         scoped_thread_id = f"{payload.workspace_id}:{payload.thread_id}"
         config = {"configurable": {"thread_id": scoped_thread_id}}
@@ -51,16 +55,20 @@ def chat_endpoint(payload: ChatRequest):
             routed_agent=final_state.get("next_node", "general_agent"),
             response=str(final_reply),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent execution error: {str(e)}")
 
 
 @router.post("/chat/stream")
-def chat_stream_endpoint(payload: ChatRequest):
+def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
     """
     Streams agent routing status and LLM response tokens in real time
     using Server-Sent Events (SSE).
     """
+    enforce_workspace_llm_access(db, payload.workspace_id, payload.provider)
+
     scoped_thread_id = f"{payload.workspace_id}:{payload.thread_id}"
     config = {"configurable": {"thread_id": scoped_thread_id}}
 
@@ -151,6 +159,7 @@ def get_thread_history(workspace_id: str, thread_id: str):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {str(e)}")
+
 
 @router.delete("/threads/{workspace_id}/{thread_id}")
 def delete_conversation_thread(workspace_id: str, thread_id: str):
