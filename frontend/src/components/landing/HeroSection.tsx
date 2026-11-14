@@ -6,11 +6,11 @@ import {
   ArrowRight,
   Bot,
   Building2,
+  Calendar,
   CheckCircle2,
   Cpu,
   Database,
   Globe,
-  KeyRound,
   Lock,
   Network,
   ShieldCheck,
@@ -26,7 +26,6 @@ const WORKSPACE_DEMOS: Record<
   DemoWorkspace,
   {
     name: string;
-    slug: string;
     industry: string;
     planBadge: string;
     prompt: string;
@@ -44,99 +43,101 @@ const WORKSPACE_DEMOS: Record<
 > = {
   apex_realty: {
     name: "Apex Luxury Realty",
-    slug: "apex-realty",
     industry: "Real Estate & Property",
-    planBadge: "BYOK VAULT • AES-256",
+    planBadge: "PRIVATE WORKSPACE • $0/MO BYOK",
     prompt:
-      "Qualify inbound investor lead Omar K. ($450K budget, Marina waterfront) and compare Q4 rental yield trends.",
+      "Qualify buyer Omar K. ($450K budget, waterfront apartment) and check latest rental yield rates.",
     outputs: {
       meta_router: {
-        routeLabel: "Auto Meta-Router → Research + CRM Subgraph",
-        toolTrace: "Executing Tavily Market Intel + Supabase Tenant CRM...",
-        responseTitle: "Lead Qualified (Score: 94/100) & Yield Brief Ready",
+        routeLabel: "Smart AI Team → Market Research + Buyer Qualification",
+        toolTrace: "Checking live property rates & scoring buyer readiness...",
+        responseTitle: "High-Intent Cash Buyer Qualified (Score: 94/100)",
         bullets: [
-          "Investor Tier: Cash-ready buyer ($450K–$520K) seeking 30-day closing.",
-          "Market Benchmark: Waterfront 2BR net yields averaging 7.4% YoY.",
-          "Next Action: Site tour slot reserved & dossier synced to workspace CRM.",
+          "Buyer Profile: Ready to invest $450K–$520K within 30 days.",
+          "Live Market Check: Waterfront 2BR units are earning 7.4% annual yield.",
+          "Action Taken: Viewing slot reserved & buyer summary saved to CRM.",
         ],
-        latency: "410ms SSE",
+        latency: "0.4s Live",
       },
       research_agent: {
-        routeLabel: "Research Agent → Live Tavily Web Search",
-        toolTrace: "Querying verified Q4 commercial & waterfront property indices...",
-        responseTitle: "Live Waterfront Rental Yield & Supply Snapshot",
+        routeLabel: "Live Web Researcher → Verified Market Data",
+        toolTrace: "Scanning current waterfront occupancy & rental trends...",
+        responseTitle: "Live Waterfront Rental Yield Report",
         bullets: [
-          "Prime waterfront occupancy reached 96.2% across Q4 institutional reports.",
-          "Short-stay furnished units outperform annual leases by +1.8% net yield.",
-          "Sources verified & isolated inside Apex Luxury Realty memory thread.",
+          "Prime waterfront occupancy reached 96.2% in the latest quarter.",
+          "Furnished short-stay units earn +1.8% higher net returns.",
+          "All research stays 100% private inside Apex Realty's workspace.",
         ],
-        latency: "680ms SSE",
+        latency: "0.6s Live",
       },
       crm_agent: {
-        routeLabel: "CRM Agent → PostgreSQL RLS Workspace Store",
-        toolTrace: "Inspecting tenant lead pipeline & qualification rules...",
-        responseTitle: "Tenant Lead Record Updated (RLS Verified)",
+        routeLabel: "CRM Assistant → Private Client Database",
+        toolTrace: "Updating buyer profile & notifying property advisor...",
+        responseTitle: "Buyer Lead Saved & Assigned",
         bullets: [
-          "Assigned Stage: High-Intent Investor • Owner: Senior Property Advisor.",
-          "Guardrail Check: Budget, timeline, and financing criteria 100% captured.",
-          "Zero cross-tenant leakage — isolated to workspace_id: 9f4a...c12.",
+          "Status: Hot Cash Investor • Assigned to Senior Property Advisor.",
+          "Checklist Complete: Budget, location & timeline confirmed automatically.",
+          "100% isolated — other client accounts cannot see this data.",
         ],
-        latency: "290ms SSE",
+        latency: "0.3s Live",
       },
     },
   },
   nova_agency: {
-    name: "Nova Growth Partners",
-    slug: "nova-growth",
-    industry: "Marketing & AI Agency",
-    planBadge: "MANAGED GROWTH • 10M POOL",
+    name: "Nova Growth Agency",
+    industry: "Marketing & B2B Agency",
+    planBadge: "ALL-INCLUSIVE PLAN • ZERO SETUP",
     prompt:
-      "Audit B2B SaaS prospect CloudPulse and generate a tailored outbound AI automation proposal.",
+      "Research prospect CloudPulse and write a tailored AI automation proposal for their sales team.",
     outputs: {
       meta_router: {
-        routeLabel: "Auto Meta-Router → Deep Research + Proposal Engine",
-        toolTrace: "Synthesizing company stack + Industry AI Brain rules...",
-        responseTitle: "Executive AI Deployment Roadmap Generated",
+        routeLabel: "Smart AI Team → Company Audit + Proposal Writer",
+        toolTrace: "Researching CloudPulse growth signals & drafting scope...",
+        responseTitle: "Custom Client Proposal Ready in 4 Seconds",
         bullets: [
-          "Bottleneck Detected: 14-hour average SDR lead response delay.",
-          "Proposed Stack: 24/7 Multi-Agent Inbound Qualifier + HubSpot MCP sync.",
-          "Projected ROI: 3.4x demo booking lift within first 45 days.",
+          "Problem Found: Their sales team takes 14+ hours to reply to new leads.",
+          "Solution Pitch: 24/7 AI Lead Qualifier + Instant Calendar Booking.",
+          "Expected Result: 3.4x more booked demos in the first 45 days.",
         ],
-        latency: "385ms SSE",
+        latency: "0.4s Live",
       },
       research_agent: {
-        routeLabel: "Research Agent → Live Tavily Intelligence",
-        toolTrace: "Scanning CloudPulse product changelog, hiring & funding signals...",
-        responseTitle: "Prospect Intelligence Brief — CloudPulse Inc.",
+        routeLabel: "Live Web Researcher → Company Intelligence",
+        toolTrace: "Checking CloudPulse news, team size & hiring trends...",
+        responseTitle: "Company Snapshot — CloudPulse Inc.",
         bullets: [
-          "Series A B2B SaaS (45 employees) actively hiring 3 RevOps engineers.",
-          "Recent launch of enterprise tier creates immediate onboarding volume.",
-          "Citations indexed to Nova Growth Partners thread checkpoint.",
+          "45-person B2B software company currently expanding their sales team.",
+          "Recently launched a new enterprise product with high inquiry volume.",
+          "Insights saved exclusively to Nova Growth Agency's workspace.",
         ],
-        latency: "620ms SSE",
+        latency: "0.6s Live",
       },
       crm_agent: {
-        routeLabel: "CRM Agent → Workspace Quota & Pipeline Ops",
-        toolTrace: "Checking workspace token pool & operator RBAC permissions...",
-        responseTitle: "Proposal Logged & Operator Task Dispatched",
+        routeLabel: "CRM Assistant → Agency Retainer Tracker",
+        toolTrace: "Logging proposal & assigning task to account manager...",
+        responseTitle: "Proposal Logged for Team Review",
         bullets: [
-          "Retainer Tier Matched: $4,500/mo Autonomous RevOps Implementation.",
-          "Token Usage: 1,420 tokens deducted from Nova Growth isolated pool.",
-          "Ready for one-click client presentation export.",
+          "Recommended Retainer: $4,500/mo AI Sales Automation Setup.",
+          "Team Access: Account manager can edit without seeing billing keys.",
+          "Ready to send to client in one click.",
         ],
-        latency: "260ms SSE",
+        latency: "0.3s Live",
       },
     },
   },
 };
 
 const MODEL_LABELS: Record<DemoModel, { label: string; provider: string }> = {
-  "llama-3.3-70b": { label: "Llama 3.3 70B", provider: "Groq LPU" },
-  "gemini-2.5-flash": { label: "Gemini 2.5 Flash", provider: "Google AI" },
-  "claude-3.7-sonnet": { label: "Claude 3.7 Sonnet", provider: "Anthropic" },
+  "llama-3.3-70b": { label: "Fast AI (Llama 3.3)", provider: "Groq" },
+  "gemini-2.5-flash": { label: "Gemini 2.5", provider: "Google" },
+  "claude-3.7-sonnet": { label: "Claude 3.7", provider: "Anthropic" },
 };
 
-export function HeroSection() {
+interface HeroSectionProps {
+  onOpenBookCall: () => void;
+}
+
+export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
   const [selectedWorkspace, setSelectedWorkspace] =
     useState<DemoWorkspace>("apex_realty");
   const [selectedAgent, setSelectedAgent] = useState<DemoAgent>("meta_router");
@@ -147,8 +148,11 @@ export function HeroSection() {
   const activeOutput = activeWs.outputs[selectedAgent];
 
   return (
-    <section className="relative overflow-hidden border-b border-zinc-800/80 pt-14 pb-20 sm:pt-20 sm:pb-28">
-      {/* Cyber Grid Background */}
+    <section
+      id="top"
+      className="relative overflow-hidden border-b border-zinc-800/80 pt-12 pb-20 sm:pt-18 sm:pb-24"
+    >
+      {/* Subtle Cyber Grid Background */}
       <div
         className="pointer-events-none absolute inset-0 opacity-20"
         style={{
@@ -158,93 +162,99 @@ export function HeroSection() {
         }}
       />
 
-      {/* Ambient Electric Lime Glows */}
-      <div className="pointer-events-none absolute left-1/2 top-0 h-[440px] w-[780px] -translate-x-1/2 rounded-full bg-[#84CC16]/12 blur-[150px]" />
+      {/* Ambient Electric Lime Glow */}
+      <div className="pointer-events-none absolute left-1/2 top-0 h-[420px] w-[760px] -translate-x-1/2 rounded-full bg-[#84CC16]/12 blur-[150px]" />
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12">
-          {/* Left 6 Columns: Persuasive B2B SaaS Copy & Dual CTAs */}
+          {/* Left 6 Columns: Crystal-Clear Business Outcome Copy */}
           <div className="space-y-6 lg:col-span-6">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#84CC16]/35 bg-[#84CC16]/10 px-3.5 py-1.5 text-xs font-semibold text-[#A3E635] shadow-[0_0_20px_rgba(132,204,22,0.15)]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#84CC16]/35 bg-[#84CC16]/10 px-3.5 py-1.5 text-xs font-semibold text-[#A3E635]">
               <Sparkles className="h-3.5 w-3.5 text-[#84CC16]" />
-              <span>Multi-Tenant Agentic AI OS for Agencies & B2B Teams</span>
+              <span>All-in-One AI Workforce for Businesses &amp; Agencies</span>
             </div>
 
-            <h1 className="text-4xl font-extrabold leading-[1.12] tracking-tight text-white sm:text-5xl xl:text-[54px]">
-              Stop Renting Single-Bot Chats.{" "}
+            <h1 className="text-4xl font-extrabold leading-[1.13] tracking-tight text-white sm:text-5xl xl:text-[52px]">
+              Your 24/7 AI Sales, Research &amp; Support Team —{" "}
               <span className="bg-gradient-to-r from-[#84CC16] via-[#A3E635] to-lime-300 bg-clip-text text-transparent">
-                Orchestrate Isolated AI Workspaces.
+                Private for Every Client.
               </span>
             </h1>
 
-            <p className="max-w-xl text-base leading-relaxed text-zinc-400 sm:text-lg">
-              StarEleven AI unites{" "}
-              <strong className="font-semibold text-zinc-200">
-                LangGraph multi-agent routing
-              </strong>
-              , live web intelligence, and{" "}
-              <strong className="font-semibold text-zinc-200">
-                AES-256 BYOK key vaults
+            <p className="max-w-xl text-base leading-relaxed text-zinc-300 sm:text-lg">
+              ChatGPT only writes text. StarEleven gives each of your businesses
+              or clients a{" "}
+              <strong className="font-semibold text-white">
+                100% separate, private AI workspace
               </strong>{" "}
-              inside Row-Level Security isolated tenant workspaces. Run your own
-              keys at <span className="font-mono text-[#A3E635]">$0/mo</span> or
-              deploy turnkey Managed token pools per client.
+              that qualifies leads, researches live market data, and updates
+              your CRM automatically —{" "}
+              <span className="font-semibold text-[#A3E635]">
+                no coding or prompt skills needed.
+              </span>
             </p>
 
-            {/* Primary & Secondary CTAs */}
-            <div className="flex flex-col gap-3.5 pt-2 sm:flex-row sm:items-center">
+            {/* Dual Conversion CTAs: Start Free + Book a Demo Call */}
+            <div className="flex flex-col gap-3.5 pt-1 sm:flex-row sm:items-center">
               <Link
                 href="/register?plan=byok_free&interval=annual"
                 className="group inline-flex items-center justify-center gap-2 rounded-xl bg-[#84CC16] px-6 py-3.5 text-sm font-bold text-[#09090B] shadow-[0_0_30px_rgba(132,204,22,0.32)] transition-all hover:bg-[#A3E635] active:scale-[0.99]"
               >
-                <KeyRound className="h-4 w-4" />
-                <span>Start Free with BYOK ($0/mo)</span>
+                <span>Start Free ($0/mo)</span>
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
 
-              <a
-                href="#pricing"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-[#121215] px-6 py-3.5 text-sm font-semibold text-zinc-200 transition hover:border-[#84CC16]/50 hover:text-white"
+              <button
+                type="button"
+                onClick={onOpenBookCall}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-[#121215] px-6 py-3.5 text-sm font-semibold text-white transition hover:border-[#84CC16]/60 hover:text-[#A3E635]"
               >
-                <span>Compare Managed Plans</span>
-              </a>
+                <Calendar className="h-4 w-4 text-[#84CC16]" />
+                <span>Book a 1-on-1 Demo Call</span>
+              </button>
             </div>
 
-            {/* Enterprise Trust Telemetry Strip */}
-            <div className="grid grid-cols-2 gap-3 border-t border-zinc-800/80 pt-6 sm:grid-cols-3">
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
+            {/* Non-Technical Business Guarantees */}
+            <div className="grid grid-cols-1 gap-2.5 border-t border-zinc-800/80 pt-5 sm:grid-cols-3">
+              <div className="flex items-center gap-2 text-xs text-zinc-300">
                 <ShieldCheck className="h-4 w-4 shrink-0 text-[#84CC16]" />
-                <span>PostgreSQL RLS Isolated</span>
+                <span>Zero Client Data Mixing</span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
+              <div className="flex items-center gap-2 text-xs text-zinc-300">
                 <Lock className="h-4 w-4 shrink-0 text-[#84CC16]" />
-                <span>Fernet AES-256 Vault</span>
+                <span>Bank-Grade Key Security</span>
               </div>
-              <div className="col-span-2 flex items-center gap-2 text-xs text-zinc-400 sm:col-span-1">
+              <div className="flex items-center gap-2 text-xs text-zinc-300">
                 <Cpu className="h-4 w-4 shrink-0 text-[#84CC16]" />
-                <span>5+ LLM Providers Hot-Swap</span>
+                <span>5+ Top AI Models Built-In</span>
               </div>
+            </div>
+
+            {/* Clean Technical Architecture Pill (For CTOs & Technical Buyers) */}
+            <div className="rounded-xl border border-zinc-800/90 bg-[#121215]/80 px-3.5 py-2.5 font-mono text-[11px] text-zinc-400">
+              <span className="font-bold text-[#A3E635]">Tech Stack:</span>{" "}
+              LangGraph Multi-Agent Router • PostgreSQL Row-Level Isolation •
+              AES-256 Key Vault • Groq, Gemini, OpenAI &amp; Claude
             </div>
           </div>
 
-          {/* Right 6 Columns: Interactive Live AI Command Center Preview Card */}
+          {/* Right 6 Columns: Interactive Live Workspace Demo */}
           <div className="lg:col-span-6">
             <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-[#121215]/95 shadow-[0_0_50px_rgba(0,0,0,0.85)] backdrop-blur-xl">
-              {/* Top Electric Lime Shimmer Accent */}
               <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#84CC16] to-transparent" />
 
-              {/* Window Bar + Interactive Workspace Switcher */}
+              {/* Top Bar + Workspace Switcher */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 bg-[#09090B]/90 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
                   <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
                   <span className="h-2.5 w-2.5 rounded-full bg-[#84CC16]" />
-                  <span className="ml-1.5 font-mono text-[11px] font-semibold text-zinc-300">
-                    command-center // live-preview
+                  <span className="ml-1.5 text-xs font-semibold text-zinc-300">
+                    Interactive Live Preview
                   </span>
                 </div>
 
-                {/* Tenant Workspace Toggle */}
+                {/* Switch Between Two Client Accounts */}
                 <div className="inline-flex items-center rounded-lg border border-zinc-800 bg-[#121215] p-0.5">
                   <button
                     type="button"
@@ -256,7 +266,7 @@ export function HeroSection() {
                     }`}
                   >
                     <Building2 className="h-3 w-3" />
-                    <span>Apex Realty</span>
+                    <span>Real Estate Client</span>
                   </button>
                   <button
                     type="button"
@@ -268,24 +278,23 @@ export function HeroSection() {
                     }`}
                   >
                     <Sparkles className="h-3 w-3" />
-                    <span>Nova Agency</span>
+                    <span>Agency Client</span>
                   </button>
                 </div>
               </div>
 
-              {/* Controls Bar: Agent Router + LLM Model Switcher */}
+              {/* Specialist & AI Brain Controls */}
               <div className="grid grid-cols-1 gap-2.5 border-b border-zinc-800/80 bg-[#0D0D10] px-4 py-3 sm:grid-cols-2">
-                {/* Agent Selector Pills */}
                 <div>
-                  <span className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Active LangGraph Node
+                  <span className="mb-1.5 block text-[11px] font-semibold text-zinc-400">
+                    1. Choose AI Specialist
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {(
                       [
-                        { id: "meta_router", label: "Meta-Router", icon: Network },
-                        { id: "research_agent", label: "Research", icon: Globe },
-                        { id: "crm_agent", label: "CRM Ops", icon: Database },
+                        { id: "meta_router", label: "Auto Team", icon: Network },
+                        { id: "research_agent", label: "Web Research", icon: Globe },
+                        { id: "crm_agent", label: "CRM Leads", icon: Database },
                       ] as const
                     ).map((agent) => {
                       const Icon = agent.icon;
@@ -309,10 +318,9 @@ export function HeroSection() {
                   </div>
                 </div>
 
-                {/* LLM Provider Hot-Swap */}
                 <div>
-                  <span className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Hot-Swappable LLM Engine
+                  <span className="mb-1.5 block text-[11px] font-semibold text-zinc-400">
+                    2. Switch AI Brain Anytime
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {(Object.keys(MODEL_LABELS) as DemoModel[]).map((mKey) => {
@@ -322,7 +330,7 @@ export function HeroSection() {
                           key={mKey}
                           type="button"
                           onClick={() => setSelectedModel(mKey)}
-                          className={`rounded-lg border px-2 py-1 font-mono text-[10px] font-semibold transition ${
+                          className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${
                             active
                               ? "border-[#84CC16]/60 bg-[#84CC16]/15 text-[#A3E635]"
                               : "border-zinc-800 bg-[#121215] text-zinc-400 hover:text-zinc-200"
@@ -336,32 +344,30 @@ export function HeroSection() {
                 </div>
               </div>
 
-              {/* Simulated Live Chat Stream */}
+              {/* Simulated Live Output */}
               <div className="space-y-4 p-4 sm:p-5">
-                {/* Tenant Context Telemetry */}
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800 bg-[#09090B] px-3 py-2 text-[11px]">
-                  <span className="font-mono text-zinc-400">
-                    Tenant: <strong className="text-white">{activeWs.name}</strong>{" "}
-                    <span className="text-zinc-500">({activeWs.industry})</span>
+                  <span className="text-zinc-400">
+                    Workspace: <strong className="text-white">{activeWs.name}</strong>
                   </span>
-                  <span className="rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-2 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
+                  <span className="rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
                     {activeWs.planBadge}
                   </span>
                 </div>
 
-                {/* User Prompt Bubble */}
-                <div className="ml-auto max-w-[90%] rounded-2xl rounded-tr-sm border border-[#84CC16]/30 bg-[#84CC16]/10 px-4 py-3 text-xs leading-relaxed text-zinc-100">
+                {/* User Inquiry */}
+                <div className="ml-auto max-w-[92%] rounded-2xl rounded-tr-sm border border-[#84CC16]/30 bg-[#84CC16]/10 px-4 py-3 text-xs leading-relaxed text-zinc-100">
                   {activeWs.prompt}
                 </div>
 
-                {/* AI Execution & Streaming Output Card */}
+                {/* AI Result */}
                 <div className="rounded-2xl rounded-tl-sm border border-zinc-800 bg-[#09090B]/95 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
                     <div className="flex items-center gap-2">
                       <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
                         <Bot className="h-3.5 w-3.5" />
                       </span>
-                      <span className="font-mono text-[11px] font-semibold text-[#A3E635]">
+                      <span className="text-[11px] font-semibold text-[#A3E635]">
                         {activeOutput.routeLabel}
                       </span>
                     </div>
@@ -371,8 +377,7 @@ export function HeroSection() {
                     </span>
                   </div>
 
-                  {/* Tool Execution Pill */}
-                  <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] text-amber-300">
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300">
                     <Terminal className="h-3 w-3 animate-pulse" />
                     <span>{activeOutput.toolTrace}</span>
                   </div>

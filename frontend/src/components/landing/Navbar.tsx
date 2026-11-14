@@ -2,17 +2,22 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowRight, Menu, X, Zap } from "lucide-react";
+import { ArrowRight, Calendar, Menu, X, Zap } from "lucide-react";
 
 const NAV_LINKS = [
-  { label: "Platform", href: "#platform" },
-  { label: "Comparison", href: "#comparison" },
+  { label: "Home", href: "#top" },
+  { label: "Benefits", href: "#platform" },
+  { label: "Why Us", href: "#comparison" },
   { label: "Industries", href: "#industries" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
 ];
 
-export function Navbar() {
+interface NavbarProps {
+  onOpenBookCall: () => void;
+}
+
+export function Navbar({ onOpenBookCall }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -24,15 +29,15 @@ export function Navbar() {
 
   return (
     <header
-      className={`sticky top-0 z-50 w-full transition-all duration-300 ${
+      className={`sticky top-0 z-40 w-full transition-all duration-300 ${
         scrolled
-          ? "border-b border-zinc-800/90 bg-[#09090B]/90 shadow-[0_8px_32px_rgba(0,0,0,0.65)] backdrop-blur-xl"
-          : "border-b border-zinc-800/40 bg-[#09090B]/70 backdrop-blur-md"
+          ? "border-b border-zinc-800/90 bg-[#09090B]/92 shadow-[0_8px_32px_rgba(0,0,0,0.65)] backdrop-blur-xl"
+          : "border-b border-zinc-800/40 bg-[#09090B]/75 backdrop-blur-md"
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Brand Logo */}
-        <Link href="/" className="group flex items-center gap-3">
+        <a href="#top" className="group flex items-center gap-3">
           <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 shadow-[0_0_18px_rgba(132,204,22,0.2)] transition-transform duration-300 group-hover:scale-105">
             <Zap className="h-5 w-5 text-[#84CC16]" />
             <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
@@ -45,13 +50,13 @@ export function Navbar() {
               Star<span className="text-[#84CC16]">Eleven</span>
             </span>
             <span className="ml-2 hidden rounded border border-zinc-800 bg-[#121215] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400 sm:inline-block">
-              Agent OS
+              AI Platform
             </span>
           </div>
-        </Link>
+        </a>
 
-        {/* Desktop Section Links */}
-        <nav className="hidden items-center gap-7 md:flex">
+        {/* Desktop Section Links (Including Home Tab) */}
+        <nav className="hidden items-center gap-6 lg:flex">
           {NAV_LINKS.map((item) => (
             <a
               key={item.href}
@@ -63,14 +68,24 @@ export function Navbar() {
           ))}
         </nav>
 
-        {/* Desktop Auth CTAs */}
-        <div className="hidden items-center gap-3 md:flex">
+        {/* Desktop CTAs: Book a Call + Sign In + Get Started Free */}
+        <div className="hidden items-center gap-2.5 md:flex">
+          <button
+            type="button"
+            onClick={onOpenBookCall}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/10 px-3.5 py-2 text-xs font-semibold text-[#A3E635] transition hover:bg-[#84CC16]/20"
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            <span>Book a Call</span>
+          </button>
+
           <Link
             href="/login"
-            className="rounded-xl border border-zinc-800 bg-[#121215] px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:border-zinc-700 hover:text-white"
+            className="rounded-xl border border-zinc-800 bg-[#121215] px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:border-zinc-700 hover:text-white"
           >
             Sign In
           </Link>
+
           <Link
             href="/register?plan=byok_free&interval=annual"
             className="group inline-flex items-center gap-1.5 rounded-xl bg-[#84CC16] px-4 py-2 text-xs font-bold text-[#09090B] shadow-[0_0_22px_rgba(132,204,22,0.28)] transition-all hover:bg-[#A3E635]"
@@ -98,7 +113,7 @@ export function Navbar() {
       {/* Mobile Dropdown Drawer */}
       {mobileMenuOpen && (
         <div className="border-t border-zinc-800 bg-[#09090B] px-4 py-5 md:hidden">
-          <nav className="flex flex-col space-y-3">
+          <nav className="flex flex-col space-y-2.5">
             {NAV_LINKS.map((item) => (
               <a
                 key={item.href}
@@ -111,22 +126,36 @@ export function Navbar() {
             ))}
           </nav>
 
-          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-zinc-800 pt-4">
-            <Link
-              href="/login"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-center rounded-xl border border-zinc-800 bg-[#121215] py-2.5 text-xs font-semibold text-zinc-200"
+          <div className="mt-4 space-y-2.5 border-t border-zinc-800 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenBookCall();
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/10 py-2.5 text-xs font-bold text-[#A3E635]"
             >
-              Sign In
-            </Link>
-            <Link
-              href="/register?plan=byok_free&interval=annual"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-center gap-1 rounded-xl bg-[#84CC16] py-2.5 text-xs font-bold text-[#09090B]"
-            >
-              <span>Get Started</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+              <Calendar className="h-3.5 w-3.5" />
+              <span>Book a 1-on-1 Strategy Call</span>
+            </button>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <Link
+                href="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-center rounded-xl border border-zinc-800 bg-[#121215] py-2.5 text-xs font-semibold text-zinc-200"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/register?plan=byok_free&interval=annual"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-center gap-1 rounded-xl bg-[#84CC16] py-2.5 text-xs font-bold text-[#09090B]"
+              >
+                <span>Start Free</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       )}
