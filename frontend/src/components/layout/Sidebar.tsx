@@ -69,7 +69,7 @@ export function Sidebar() {
     return (
       <div
         className={`flex h-full flex-col border-r border-zinc-800/80 bg-[#09090B] transition-all duration-200 ${
-          isCollapsed ? "w-20" : "w-68"
+          isCollapsed ? "w-20" : "w-[272px]"
         }`}
       >
         {/* Top Brand Header */}
@@ -98,7 +98,8 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(false)}
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
+              aria-label="Close Sidebar"
             >
               <X className="h-5 w-5" />
             </button>
@@ -146,8 +147,8 @@ export function Sidebar() {
                     title={isCollapsed ? item.label : undefined}
                     className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
                       isActive
-                        ? "bg-[#84CC16]/15 text-[#A3E635] border border-[#84CC16]/35 shadow-sm"
-                        : "text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100 border border-transparent"
+                        ? "border border-[#84CC16]/35 bg-[#84CC16]/15 text-[#A3E635] shadow-sm"
+                        : "border border-transparent text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100"
                     } ${isCollapsed ? "justify-center px-2" : ""}`}
                   >
                     <div className="flex items-center gap-3">
@@ -194,8 +195,8 @@ export function Sidebar() {
                     title={isCollapsed ? item.label : undefined}
                     className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
                       isActive
-                        ? "bg-[#84CC16]/15 text-[#A3E635] border border-[#84CC16]/35"
-                        : "text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100 border border-transparent"
+                        ? "border border-[#84CC16]/35 bg-[#84CC16]/15 text-[#A3E635]"
+                        : "border border-transparent text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100"
                     } ${isCollapsed ? "justify-center px-2" : ""}`}
                   >
                     <Icon
@@ -230,7 +231,7 @@ export function Sidebar() {
                     {user?.fullName || "Operator"}
                   </p>
                   <p className="truncate text-[11px] text-zinc-500">
-                    {user?.email}
+                    {user?.email || "Active Session"}
                   </p>
                 </div>
               )}
@@ -259,7 +260,7 @@ export function Sidebar() {
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 z-50 flex lg:hidden">
           <div
-            className="fixed inset-0 bg-black/75 backdrop-blur-xs"
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm"
             onClick={() => setIsMobileSidebarOpen(false)}
           />
           <div className="relative z-10 flex h-full">
@@ -270,3 +271,5 @@ export function Sidebar() {
     </>
   );
 }
+
+export default Sidebar;
