@@ -22,6 +22,8 @@ import { sessionService } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
 import { PlanMode } from "@/types/saas";
 
+import { PlanQueryBanner } from "@/components/auth/PlanQueryBanner";
+
 function toSlug(text: string): string {
   return text
     .toLowerCase()
@@ -227,6 +229,14 @@ export default function RegisterPage() {
     <div className="relative overflow-hidden rounded-2xl border border-surface-border bg-surface-card/90 p-7 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-brand/40 sm:p-8">
       {/* Top Electric Lime Shimmer */}
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-brand to-transparent" />
+
+      <PlanQueryBanner
+        showBackHome={true}
+        showPlanPill={true}
+        onPlanResolved={(sel) => {
+          setPlanMode(sel.planMode);
+        }}
+      />
 
       {step === "form" ? (
         <>

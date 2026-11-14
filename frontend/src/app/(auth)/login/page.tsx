@@ -18,6 +18,8 @@ import { starElevenApi } from "@/lib/api";
 import { sessionService } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
 
+import { PlanQueryBanner } from "@/components/auth/PlanQueryBanner";
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -130,6 +132,8 @@ export default function LoginPage() {
     <div className="relative overflow-hidden rounded-2xl border border-surface-border bg-surface-card/90 p-7 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-brand/40 sm:p-8">
       {/* Top Electric Lime Shimmer Line */}
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-brand to-transparent" />
+
+      <PlanQueryBanner showBackHome={true} showPlanPill={false} />
 
       {/* Header + Live API Status */}
       <div className="mb-6 flex items-center justify-between">
