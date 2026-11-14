@@ -43,12 +43,12 @@ const PRICING_TIERS: PricingTier[] = [
   {
     id: "byok_free",
     name: "BYOK Free",
-    tagline: "1 Free Workspace (Own API Keys) powered by your own encrypted API keys.",
+    tagline: "One Free Workspace (Own API Keys) powered by your own encrypted API keys.",
     monthlyPrice: 0,
     annualPrice: 0,
     tokenPoolLabel: "1 Free Workspace (Own API Keys)",
     monthlyTokens: 0,
-    badge: "1 Free Workspace (Own API Keys)",
+    badge: "1 Free",
     ctaLabel: "Use BYOK Free",
     features: [
       "Create 1 Free Workspace (Own API Keys) at $0/mo",

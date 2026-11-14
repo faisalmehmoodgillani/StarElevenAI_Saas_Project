@@ -12,6 +12,7 @@ import {
   LogOut,
   MessageSquare,
   Settings,
+  ShieldCheck,
   Users,
   X,
   Zap,
@@ -56,13 +57,22 @@ const SYSTEM_NAV: NavItem[] = [
     href: "/settings",
     icon: Settings,
   },
-
   {
     label: "Pricing & Quotas",
     href: "/pricing",
     icon: CreditCard,
   },
 ];
+
+function isSuperAdminUser(email?: string | null): boolean {
+  const configured = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || "";
+  if (!configured.trim() || !email || !email.trim()) return false;
+  const allowed = configured
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(email.trim().toLowerCase());
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -72,6 +82,7 @@ export function Sidebar() {
 
   const renderSidebarContent = (isMobile = false) => {
     const isCollapsed = isMobile ? false : collapsed;
+    const showSuperAdmin = isSuperAdminUser(user?.email);
 
     return (
       <div
@@ -219,6 +230,46 @@ export function Sidebar() {
               })}
             </nav>
           </div>
+
+          {/* Super Admin Platform Control (Visible ONLY to NEXT_PUBLIC_SUPER_ADMIN_EMAIL) */}
+          {showSuperAdmin && (
+            <div>
+              {!isCollapsed && (
+                <p className="mb-2 px-2.5 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                  Platform Control
+                </p>
+              )}
+              <nav className="space-y-1">
+                <Link
+                  href="/admin"
+                  onClick={() => isMobile && setIsMobileSidebarOpen(false)}
+                  title={isCollapsed ? "Super Admin" : undefined}
+                  className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                    pathname === "/admin" || pathname?.startsWith("/admin/")
+                      ? "border border-[#84CC16]/35 bg-[#84CC16]/15 text-[#A3E635] shadow-sm"
+                      : "border border-transparent text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100"
+                  } ${isCollapsed ? "justify-center px-2" : ""}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <ShieldCheck
+                      className={`h-4 w-4 shrink-0 ${
+                        pathname === "/admin" || pathname?.startsWith("/admin/")
+                          ? "text-[#84CC16]"
+                          : "text-zinc-400 group-hover:text-zinc-200"
+                      }`}
+                    />
+                    {!isCollapsed && <span>Super Admin</span>}
+                  </div>
+
+                  {!isCollapsed && (
+                    <span className="rounded-full bg-[#84CC16]/20 px-2 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
+                      Root
+                    </span>
+                  )}
+                </Link>
+              </nav>
+            </div>
+          )}
         </div>
 
         {/* Bottom User Profile & Sign Out */}
