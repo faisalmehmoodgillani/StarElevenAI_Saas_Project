@@ -2,6 +2,7 @@ import hashlib
 import os
 import uuid
 from typing import Optional
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from backend.database.models import Workspace, User, AgentConfig
 from backend.services.security import encrypt_api_key
@@ -33,7 +34,7 @@ def create_workspace_with_admin(
 
     workspace = Workspace(name=workspace_name, slug=slug, is_active=True)
     db.add(workspace)
-    db.flush()  # Generates workspace.id before committing
+    db.flush()
 
     admin_user = User(
         workspace_id=workspace.id,
@@ -65,33 +66,79 @@ def create_agent_configuration(
     plain_api_key: Optional[str] = None,
     settings_json: Optional[dict] = None,
 ) -> dict:
-    """Saves a workspace agent config with AES-256 encrypted API key in Supabase."""
-    wid = uuid.UUID(workspace_id)
+    """Upserts a workspace agent config with AES-256 encrypted API key in Supabase."""
+    try:
+        wid = uuid.UUID(str(workspace_id).strip())
+    except ValueError as exc:
+        raise ValueError(f"Invalid workspace_id UUID: {workspace_id}") from exc
+
     workspace = db.query(Workspace).filter(Workspace.id == wid).first()
     if not workspace:
         raise ValueError(f"Workspace not found for ID: {workspace_id}")
 
-    encrypted_key = encrypt_api_key(plain_api_key) if plain_api_key else None
-
-    agent_cfg = AgentConfig(
-        workspace_id=wid,
-        agent_type=agent_type,
-        provider=provider,
-        model_name=model_name,
-        encrypted_api_key=encrypted_key,
-        settings_json=settings_json or {},
+    # Ensure required columns exist in Supabase agent_configs table
+    db.execute(
+        text(
+            """
+            ALTER TABLE agent_configs
+            ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT NULL;
+            """
+        )
     )
-    db.add(agent_cfg)
-    db.commit()
-    db.refresh(agent_cfg)
+    db.execute(
+        text(
+            """
+            ALTER TABLE agent_configs
+            ADD COLUMN IF NOT EXISTS settings_json JSONB DEFAULT '{}'::jsonb;
+            """
+        )
+    )
+
+    encrypted_key = (
+        encrypt_api_key(plain_api_key)
+        if plain_api_key and plain_api_key.strip()
+        else None
+    )
+
+    existing_cfg = (
+        db.query(AgentConfig)
+        .filter(
+            AgentConfig.workspace_id == wid,
+            AgentConfig.agent_type == agent_type,
+        )
+        .first()
+    )
+
+    if existing_cfg:
+        existing_cfg.provider = provider
+        existing_cfg.model_name = model_name
+        if encrypted_key is not None:
+            existing_cfg.encrypted_api_key = encrypted_key
+        if settings_json is not None:
+            existing_cfg.settings_json = settings_json
+        db.commit()
+        db.refresh(existing_cfg)
+        target_cfg = existing_cfg
+    else:
+        target_cfg = AgentConfig(
+            workspace_id=wid,
+            agent_type=agent_type,
+            provider=provider,
+            model_name=model_name,
+            encrypted_api_key=encrypted_key,
+            settings_json=settings_json or {},
+        )
+        db.add(target_cfg)
+        db.commit()
+        db.refresh(target_cfg)
 
     return {
-        "agent_config_id": str(agent_cfg.id),
-        "workspace_id": str(agent_cfg.workspace_id),
-        "agent_type": agent_cfg.agent_type,
-        "provider": agent_cfg.provider,
-        "model_name": agent_cfg.model_name,
-        "has_custom_encrypted_key": bool(agent_cfg.encrypted_api_key),
+        "agent_config_id": str(target_cfg.id),
+        "workspace_id": str(target_cfg.workspace_id),
+        "agent_type": target_cfg.agent_type,
+        "provider": target_cfg.provider,
+        "model_name": target_cfg.model_name,
+        "has_custom_encrypted_key": bool(target_cfg.encrypted_api_key),
     }
 
 

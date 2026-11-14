@@ -55,14 +55,16 @@ def _send_invite_email(
     role: str,
     invited_by: Optional[str],
 ) -> tuple[bool, str]:
-    smtp_email = (os.getenv("SMTP_EMAIL") or "").strip()
-    smtp_password = (os.getenv("SMTP_APP_PASSWORD") or "").strip().replace(" ", "")
+    smtp_host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
+    smtp_port = int((os.getenv("SMTP_PORT") or "465").strip())
+    smtp_user = (os.getenv("SMTP_USER") or "").strip()
+    smtp_password = (os.getenv("SMTP_PASSWORD") or "").strip().replace(" ", "")
     app_url = (os.getenv("FRONTEND_APP_URL") or "http://localhost:3000").rstrip("/")
 
-    if not smtp_email or not smtp_password:
+    if not smtp_user or not smtp_password:
         return (
             False,
-            "Member saved in Supabase, but SMTP_EMAIL / SMTP_APP_PASSWORD is missing in .env.",
+            "Member saved in Supabase, but SMTP_USER or SMTP_PASSWORD is empty in .env.",
         )
 
     inviter_label = invited_by or "Workspace Admin"
@@ -97,19 +99,24 @@ def _send_invite_email(
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Invitation: Join {workspace_name} on StarEleven AI"
-    msg["From"] = f"StarEleven AI <{smtp_email}>"
+    msg["From"] = f"StarEleven AI <{smtp_user}>"
     msg["To"] = recipient_email
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, [recipient_email], msg.as_string())
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_user, [recipient_email], msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_user, [recipient_email], msg.as_string())
         return True, f"Invitation email sent to {recipient_email}!"
     except Exception as exc:
         logger.exception("Failed to send workspace invite email")
         return False, f"Member saved in database, but SMTP error occurred: {exc}"
-
 
 @router.get("/{workspace_id}/members")
 def list_workspace_members(workspace_id: str, db: Session = Depends(get_db)):

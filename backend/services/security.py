@@ -1,30 +1,30 @@
 import os
+from typing import Optional
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
-def _init_fernet() -> Fernet:
-    raw_key = os.getenv("ENCRYPTION_KEY")
-    if raw_key:
-        try:
-            return Fernet(raw_key.encode())
-        except Exception:
-            # .env key invalid hone ki surat mein fallback handle karta hai
-            pass
-    # Key missing ya invalid hone par development fallback key
-    return Fernet(Fernet.generate_key())
 
-fernet = _init_fernet()
+def _get_cipher() -> Fernet:
+    load_dotenv(override=True)
+    raw_key = (os.getenv("ENCRYPTION_KEY") or "").strip().strip('"').strip("'")
+    if not raw_key:
+        raise ValueError("ENCRYPTION_KEY is missing in .env file.")
+    return Fernet(raw_key.encode("utf-8"))
+
 
 def encrypt_api_key(plain_key: str) -> str:
-    """Encrypts plain text API keys prior to DB insertion."""
-    if not plain_key:
-        return ""
-    return fernet.encrypt(plain_key.encode()).decode()
+    """Encrypts a plaintext LLM API key using AES-256 Fernet."""
+    if not plain_key or not plain_key.strip():
+        raise ValueError("API key cannot be empty.")
+    cipher = _get_cipher()
+    return cipher.encrypt(plain_key.strip().encode("utf-8")).decode("utf-8")
 
-def decrypt_api_key(encrypted_key: str) -> str:
-    """Decrypts API keys for dynamic runtime model initialization."""
-    if not encrypted_key:
-        return ""
-    return fernet.decrypt(encrypted_key.encode()).decode()
+
+def decrypt_api_key(encrypted_key: Optional[str]) -> Optional[str]:
+    """Decrypts an AES-256 Fernet encrypted API key."""
+    if not encrypted_key or not encrypted_key.strip():
+        return None
+    cipher = _get_cipher()
+    return cipher.decrypt(encrypted_key.strip().encode("utf-8")).decode("utf-8")
