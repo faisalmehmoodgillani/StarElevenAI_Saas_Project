@@ -9,22 +9,29 @@ import {
   BarChart3,
   Bot,
   Building2,
+  CalendarPlus,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Coins,
   Cpu,
   Filter,
+  Gift,
   Layers,
   Loader2,
   MessageSquare,
   PauseCircle,
+  Percent,
   PlayCircle,
+  Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Tag,
+  Trash2,
   Users,
   XCircle,
 } from "lucide-react";
@@ -33,9 +40,14 @@ import { useWorkspace } from "@/context/WorkspaceContext";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-type AdminTabKey = "overview" | "approvals" | "directory" | "governance";
+type AdminTabKey =
+  | "overview"
+  | "approvals"
+  | "directory"
+  | "deals"
+  | "governance";
 
-const ADMIN_TAB_STORAGE_KEY = "stareleven_admin_active_tab_v1";
+const ADMIN_TAB_STORAGE_KEY = "stareleven_admin_active_tab_v2";
 
 interface IndustryDistItem {
   industry: string;
@@ -89,6 +101,10 @@ interface AdminWorkspaceItem {
   tokens_used_this_month: number;
   monthly_token_limit: number;
   usage_percent: number;
+  discount_percent: number;
+  custom_monthly_price?: number | null;
+  discount_note?: string | null;
+  applied_promo_code?: string | null;
   billing_cycle_end?: string | null;
   is_active: boolean;
   configured_agents: ConfiguredAgentItem[];
@@ -101,6 +117,7 @@ interface AdminUserRecord {
   full_name: string;
   primary_role: "owner" | "operator" | string;
   signup_method: string;
+  max_workspaces_allowed: number;
   created_at?: string | null;
   total_workspaces: number;
   owned_workspaces_count: number;
@@ -119,6 +136,22 @@ interface PendingManagedRequest {
   billing_interval: string;
   current_monthly_token_limit: number;
   default_monthly_token_limit: number;
+  discount_percent: number;
+  custom_monthly_price?: number | null;
+  applied_promo_code?: string | null;
+  created_at?: string | null;
+}
+
+interface PromoCodeItem {
+  id: string;
+  code: string;
+  discount_percent: number;
+  bonus_tokens: number;
+  extra_workspaces: number;
+  max_uses: number;
+  times_used: number;
+  expires_at?: string | null;
+  is_active: boolean;
   created_at?: string | null;
 }
 
@@ -174,7 +207,6 @@ export default function SuperAdminCommandCenterPage() {
     [resolvedEmail]
   );
 
-  // Active Tab State (Persisted across refreshes)
   const [activeTab, setActiveTab] = useState<AdminTabKey>("overview");
 
   useEffect(() => {
@@ -184,7 +216,9 @@ export default function SuperAdminCommandCenterPage() {
     ) as AdminTabKey | null;
     if (
       saved &&
-      ["overview", "approvals", "directory", "governance"].includes(saved)
+      ["overview", "approvals", "directory", "deals", "governance"].includes(
+        saved
+      )
     ) {
       setActiveTab(saved);
     }
@@ -202,20 +236,38 @@ export default function SuperAdminCommandCenterPage() {
   const [pendingRequests, setPendingRequests] = useState<
     PendingManagedRequest[]
   >([]);
+  const [promoCodes, setPromoCodes] = useState<PromoCodeItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
 
-  // Editable quota inputs keyed by workspace_id
+  // Per-workspace & per-user inline controls
   const [approvalQuotas, setApprovalQuotas] = useState<Record<string, number>>(
     {}
   );
   const [directoryQuotas, setDirectoryQuotas] = useState<
     Record<string, number>
   >({});
-  const [busyWorkspaceId, setBusyWorkspaceId] = useState<string | null>(null);
+  const [userAllowances, setUserAllowances] = useState<Record<string, number>>(
+    {}
+  );
+  const [discountInputs, setDiscountInputs] = useState<
+    Record<string, { percent: number; customPrice: string; note: string }>
+  >({});
+  const [selectedPlanAssign, setSelectedPlanAssign] = useState<
+    Record<string, string>
+  >({});
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  // Directory filters & expandable rows
+  // Promo code creation form
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoDiscountInput, setPromoDiscountInput] = useState(25);
+  const [promoBonusTokensInput, setPromoBonusTokensInput] = useState(500000);
+  const [promoExtraWsInput, setPromoExtraWsInput] = useState(0);
+  const [promoMaxUsesInput, setPromoMaxUsesInput] = useState(50);
+  const [promoValidDaysInput, setPromoValidDaysInput] = useState(30);
+
+  // Directory filters
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [industryFilter, setIndustryFilter] = useState<string>("all");
   const [planModeFilter, setPlanModeFilter] = useState<string>("all");
@@ -224,7 +276,6 @@ export default function SuperAdminCommandCenterPage() {
     {}
   );
 
-  // Redirect unauthorized users immediately
   useEffect(() => {
     if (!isAuthLoading && !isAuthorized) {
       router.replace("/chat");
@@ -243,9 +294,10 @@ export default function SuperAdminCommandCenterPage() {
         "X-User-Email": resolvedEmail,
       };
 
-      const [overviewRes, usersRes] = await Promise.all([
+      const [overviewRes, usersRes, promosRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/v1/admin/overview`, { headers }),
         fetch(`${API_BASE_URL}/api/v1/admin/users`, { headers }),
+        fetch(`${API_BASE_URL}/api/v1/admin/promo-codes`, { headers }),
       ]);
 
       if (!overviewRes.ok) {
@@ -265,6 +317,9 @@ export default function SuperAdminCommandCenterPage() {
 
       const overviewData: AdminOverviewData = await overviewRes.json();
       const usersData = await usersRes.json();
+      const promosData = promosRes.ok
+        ? await promosRes.json()
+        : { promo_codes: [] };
 
       const fetchedUsers: AdminUserRecord[] = Array.isArray(usersData.users)
         ? usersData.users
@@ -278,6 +333,9 @@ export default function SuperAdminCommandCenterPage() {
       setOverview(overviewData);
       setUsersDirectory(fetchedUsers);
       setPendingRequests(fetchedPending);
+      setPromoCodes(
+        Array.isArray(promosData.promo_codes) ? promosData.promo_codes : []
+      );
 
       setApprovalQuotas((prev) => {
         const next = { ...prev };
@@ -289,12 +347,52 @@ export default function SuperAdminCommandCenterPage() {
         return next;
       });
 
+      setUserAllowances((prev) => {
+        const next = { ...prev };
+        for (const u of fetchedUsers) {
+          if (next[u.email] === undefined) {
+            next[u.email] = u.max_workspaces_allowed || 1;
+          }
+        }
+        return next;
+      });
+
       setDirectoryQuotas((prev) => {
         const next = { ...prev };
         for (const u of fetchedUsers) {
           for (const ws of u.workspaces) {
+            next[ws.id] = ws.monthly_token_limit;
+          }
+        }
+        return next;
+      });
+
+      setDiscountInputs((prev) => {
+        const next = { ...prev };
+        for (const u of fetchedUsers) {
+          for (const ws of u.workspaces) {
             if (next[ws.id] === undefined) {
-              next[ws.id] = ws.monthly_token_limit;
+              next[ws.id] = {
+                percent: ws.discount_percent || 0,
+                customPrice:
+                  ws.custom_monthly_price !== null &&
+                  ws.custom_monthly_price !== undefined
+                    ? String(ws.custom_monthly_price)
+                    : "",
+                note: ws.discount_note || "",
+              };
+            }
+          }
+        }
+        return next;
+      });
+
+      setSelectedPlanAssign((prev) => {
+        const next = { ...prev };
+        for (const u of fetchedUsers) {
+          for (const ws of u.workspaces) {
+            if (next[ws.id] === undefined) {
+              next[ws.id] = ws.plan_tier || "managed_starter";
             }
           }
         }
@@ -319,20 +417,11 @@ export default function SuperAdminCommandCenterPage() {
 
   const handleWorkspaceDecision = async (
     workspaceId: string,
-    payload: {
-      action:
-        | "approve_managed"
-        | "reject_managed"
-        | "update_quota"
-        | "suspend"
-        | "reactivate";
-      plan_tier?: string;
-      monthly_token_limit?: number;
-    },
+    payload: Record<string, unknown>,
     successMessage: string
   ) => {
     if (!resolvedEmail) return;
-    setBusyWorkspaceId(workspaceId);
+    setBusyKey(workspaceId);
     setErrorBanner(null);
     setStatusBanner(null);
 
@@ -354,7 +443,7 @@ export default function SuperAdminCommandCenterPage() {
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         throw new Error(
-          err.detail || `Administrative decision failed (${response.status})`
+          err.detail || `Administrative action failed (${response.status})`
         );
       }
 
@@ -365,7 +454,146 @@ export default function SuperAdminCommandCenterPage() {
         err instanceof Error ? err.message : "Failed to update workspace."
       );
     } finally {
-      setBusyWorkspaceId(null);
+      setBusyKey(null);
+    }
+  };
+
+  const handleUpdateUserAllowance = async (
+    targetEmail: string,
+    newAllowance: number
+  ) => {
+    if (!resolvedEmail) return;
+    setBusyKey(`user:${targetEmail}`);
+    setErrorBanner(null);
+    setStatusBanner(null);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/admin/users/${encodeURIComponent(
+          targetEmail
+        )}/allowance`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-Email": resolvedEmail,
+          },
+          body: JSON.stringify({
+            max_workspaces_allowed: Math.max(1, newAllowance),
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to update workspace allowance.");
+      }
+
+      setUserAllowances((prev) => ({
+        ...prev,
+        [targetEmail]: Math.max(1, newAllowance),
+      }));
+      setStatusBanner(
+        `Updated workspace allowance for ${targetEmail} to ${Math.max(
+          1,
+          newAllowance
+        )} workspace(s).`
+      );
+      await loadAdminTelemetry();
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : "Unable to update user workspace allowance."
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleCreatePromoCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resolvedEmail || !promoCodeInput.trim()) return;
+    setBusyKey("create_promo");
+    setErrorBanner(null);
+    setStatusBanner(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/promo-codes`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Email": resolvedEmail,
+        },
+        body: JSON.stringify({
+          code: promoCodeInput.trim().toUpperCase(),
+          discount_percent: promoDiscountInput,
+          bonus_tokens: promoBonusTokensInput,
+          extra_workspaces: promoExtraWsInput,
+          max_uses: promoMaxUsesInput,
+          valid_days: promoValidDaysInput,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to create promo code.");
+      }
+
+      setStatusBanner(
+        `Created promo code '${promoCodeInput.trim().toUpperCase()}'.`
+      );
+      setPromoCodeInput("");
+      await loadAdminTelemetry();
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error ? err.message : "Failed to create promo code."
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleToggleOrDeletePromo = async (
+    promoId: string,
+    mode: "toggle" | "delete"
+  ) => {
+    if (!resolvedEmail) return;
+    setBusyKey(`promo:${promoId}`);
+    setErrorBanner(null);
+    setStatusBanner(null);
+
+    try {
+      const url =
+        mode === "toggle"
+          ? `${API_BASE_URL}/api/v1/admin/promo-codes/${promoId}/toggle`
+          : `${API_BASE_URL}/api/v1/admin/promo-codes/${promoId}`;
+
+      const res = await fetch(url, {
+        method: mode === "toggle" ? "PATCH" : "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Email": resolvedEmail,
+        },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Failed to ${mode} promo code.`);
+      }
+
+      setStatusBanner(
+        mode === "toggle"
+          ? "Updated promo code active status."
+          : "Deleted promo code."
+      );
+      await loadAdminTelemetry();
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error ? err.message : "Promo action failed."
+      );
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -376,7 +604,6 @@ export default function SuperAdminCommandCenterPage() {
     }));
   };
 
-  // Deduplicated platform-wide workspaces & agents for Approvals & Governance tabs
   const allUniqueWorkspaces = useMemo(() => {
     const map = new Map<
       string,
@@ -417,7 +644,9 @@ export default function SuperAdminCommandCenterPage() {
   const highUsageOrSuspendedWorkspaces = useMemo(
     () =>
       allUniqueWorkspaces.filter(
-        (ws) => !ws.is_active || (ws.monthly_token_limit > 0 && ws.usage_percent >= 75)
+        (ws) =>
+          !ws.is_active ||
+          (ws.monthly_token_limit > 0 && ws.usage_percent >= 75)
       ),
     [allUniqueWorkspaces]
   );
@@ -432,7 +661,6 @@ export default function SuperAdminCommandCenterPage() {
       workspace_name: string;
       workspace_slug: string;
       industry: string;
-      plan_mode: string;
     }> = [];
 
     for (const ws of allUniqueWorkspaces) {
@@ -446,14 +674,12 @@ export default function SuperAdminCommandCenterPage() {
           workspace_name: ws.name,
           workspace_slug: ws.slug,
           industry: ws.industry,
-          plan_mode: ws.plan_mode,
         });
       }
     }
     return items;
   }, [allUniqueWorkspaces]);
 
-  // Filtered user & workspace directory
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const hasWorkspaceFilter =
@@ -517,7 +743,6 @@ export default function SuperAdminCommandCenterPage() {
     statusFilter,
   ]);
 
-  // Auth loading or unauthorized route guard screen
   if (isAuthLoading || !isAuthorized) {
     return (
       <div className="flex min-h-[80vh] flex-col items-center justify-center bg-[#09090B] px-6 text-center text-zinc-200">
@@ -547,7 +772,7 @@ export default function SuperAdminCommandCenterPage() {
             <div className="flex items-center gap-2">
               <span className="inline-flex h-2 w-2 rounded-full bg-[#84CC16] shadow-[0_0_12px_#84CC16]" />
               <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#A3E635]">
-                Root Governance • Platform Command Center
+                Root Governance • Commercial Command Center
               </span>
             </div>
             <h1 className="mt-1.5 flex items-center gap-2.5 text-2xl font-extrabold tracking-tight text-white">
@@ -555,8 +780,8 @@ export default function SuperAdminCommandCenterPage() {
               Super Admin Command Center
             </h1>
             <p className="mt-1 text-xs text-zinc-400">
-              Platform-wide telemetry, Managed Plan approval queue, multi-tenant
-              directory, and AI quota governance.
+              Platform telemetry, Managed Plan approvals, bonus tokens, extra
+              workspace grants, and commercial promo discounts.
             </p>
           </div>
 
@@ -631,7 +856,7 @@ export default function SuperAdminCommandCenterPage() {
             }`}
           >
             <Users className="h-4 w-4" />
-            <span>Users &amp; Workspaces</span>
+            <span>Users, Quotas &amp; Grants</span>
             <span
               className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
                 activeTab === "directory"
@@ -645,6 +870,28 @@ export default function SuperAdminCommandCenterPage() {
 
           <button
             type="button"
+            onClick={() => handleSelectTab("deals")}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+              activeTab === "deals"
+                ? "bg-[#84CC16] text-[#09090B] shadow-md shadow-[#84CC16]/20"
+                : "text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100"
+            }`}
+          >
+            <Tag className="h-4 w-4" />
+            <span>Deals &amp; Promo Codes</span>
+            <span
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                activeTab === "deals"
+                  ? "bg-[#09090B]/20 text-[#09090B]"
+                  : "bg-zinc-800 text-zinc-400"
+              }`}
+            >
+              {promoCodes.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => handleSelectTab("governance")}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
               activeTab === "governance"
@@ -653,7 +900,7 @@ export default function SuperAdminCommandCenterPage() {
             }`}
           >
             <Cpu className="h-4 w-4" />
-            <span>Agents &amp; Quota Watch</span>
+            <span>Agents &amp; Watchlist</span>
             {highUsageOrSuspendedWorkspaces.length > 0 && (
               <span
                 className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-extrabold ${
@@ -706,7 +953,6 @@ export default function SuperAdminCommandCenterPage() {
         {/* ================================================================= */}
         {activeTab === "overview" && (
           <div className="space-y-6">
-            {/* Pending Request Quick Callout Banner */}
             {pendingRequests.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -940,8 +1186,7 @@ export default function SuperAdminCommandCenterPage() {
                   </h2>
                 </div>
                 <span className="text-[11px] text-zinc-500">
-                  Click any industry pill to inspect matching workspaces in
-                  Directory
+                  Click any industry pill to inspect matching workspaces
                 </span>
               </div>
 
@@ -982,7 +1227,6 @@ export default function SuperAdminCommandCenterPage() {
         {/* ================================================================= */}
         {activeTab === "approvals" && (
           <div className="space-y-6">
-            {/* Pending Queue Card */}
             <div className="rounded-2xl border border-zinc-800/90 bg-[#121215] p-6">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
                 <div className="flex items-center gap-2.5">
@@ -994,8 +1238,8 @@ export default function SuperAdminCommandCenterPage() {
                       Pending Managed Plan Requests
                     </h2>
                     <p className="text-xs text-zinc-400">
-                      Approve or reject Managed Plan upgrades, adjust monthly
-                      token limits, and start 30-day billing cycles.
+                      Approve or reject Managed Plan upgrades, customize monthly
+                      token quotas, and activate 30-day billing cycles.
                     </p>
                   </div>
                 </div>
@@ -1019,14 +1263,14 @@ export default function SuperAdminCommandCenterPage() {
                   </p>
                   <p className="mt-1 max-w-md text-xs text-zinc-500">
                     There are no pending Managed Plan upgrade requests right
-                    now. When a workspace owner requests a Managed Plan from
-                    /pricing or /settings, it will appear here.
+                    now. You can also directly assign a Managed Plan or bonus
+                    tokens to any user from the Users, Quotas &amp; Grants tab.
                   </p>
                 </div>
               ) : (
                 <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
                   {pendingRequests.map((req) => {
-                    const isBusy = busyWorkspaceId === req.workspace_id;
+                    const isBusy = busyKey === req.workspace_id;
                     const quotaValue =
                       approvalQuotas[req.workspace_id] ??
                       req.default_monthly_token_limit;
@@ -1055,6 +1299,11 @@ export default function SuperAdminCommandCenterPage() {
                               <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
                                 {req.billing_interval}
                               </span>
+                              {req.discount_percent > 0 && (
+                                <span className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300">
+                                  {req.discount_percent}% OFF
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1151,7 +1400,7 @@ export default function SuperAdminCommandCenterPage() {
               )}
             </div>
 
-            {/* Already Approved Managed Workspaces */}
+            {/* Active Managed Plan Workspaces */}
             <div className="rounded-2xl border border-zinc-800/90 bg-[#121215] p-6">
               <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
                 <div>
@@ -1180,13 +1429,18 @@ export default function SuperAdminCommandCenterPage() {
                       className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-[#09090B] p-4"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-xs font-bold text-white">
                             {ws.name}
                           </p>
                           <span className="rounded bg-[#84CC16]/15 px-2 py-0.5 font-mono text-[10px] font-bold text-[#A3E635]">
                             {formatPlanTierLabel(ws.plan_tier)}
                           </span>
+                          {ws.discount_percent > 0 && (
+                            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
+                              {ws.discount_percent}% OFF
+                            </span>
+                          )}
                         </div>
                         <p className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">
                           {ws.owner_email} •{" "}
@@ -1197,7 +1451,7 @@ export default function SuperAdminCommandCenterPage() {
 
                       <button
                         type="button"
-                        disabled={busyWorkspaceId === ws.id}
+                        disabled={busyKey === ws.id}
                         onClick={() =>
                           handleWorkspaceDecision(
                             ws.id,
@@ -1218,23 +1472,22 @@ export default function SuperAdminCommandCenterPage() {
         )}
 
         {/* ================================================================= */}
-        {/* TAB 3: USER & WORKSPACE DIRECTORY                                 */}
+        {/* TAB 3: USERS, QUOTAS, EXTRA WORKSPACES & COMMERCIAL GRANTS        */}
         {/* ================================================================= */}
         {activeTab === "directory" && (
           <div className="rounded-2xl border border-zinc-800/90 bg-[#121215] p-6">
             <div className="flex flex-col justify-between gap-4 border-b border-zinc-800/80 pb-4 lg:flex-row lg:items-center">
               <div>
                 <h2 className="text-base font-bold text-white">
-                  User &amp; Workspace Directory
+                  Users, Extra Workspace Grants &amp; Token Top-Ups
                 </h2>
                 <p className="text-xs text-zinc-400">
-                  Expand any user row to inspect owned/joined workspaces, token
-                  usage bars, configured agents, and workspace suspension
-                  controls.
+                  Expand any user to grant extra workspaces, add bonus tokens,
+                  assign plans directly, apply custom discounts, or suspend
+                  workspaces.
                 </p>
               </div>
 
-              {/* Search & Multi-Filters */}
               <div className="flex flex-wrap items-center gap-2.5">
                 <div className="relative min-w-[220px] flex-1 sm:flex-initial">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
@@ -1321,7 +1574,6 @@ export default function SuperAdminCommandCenterPage() {
               </div>
             </div>
 
-            {/* Users List */}
             <div className="mt-4 space-y-2.5">
               {isLoadingData ? (
                 <div className="flex items-center justify-center py-12 text-xs text-zinc-400">
@@ -1339,6 +1591,9 @@ export default function SuperAdminCommandCenterPage() {
                     (acc, ws) => acc + (ws.tokens_used_this_month || 0),
                     0
                   );
+                  const allowanceVal =
+                    userAllowances[u.email] ?? u.max_workspaces_allowed ?? 1;
+                  const isUserBusy = busyKey === `user:${u.email}`;
 
                   return (
                     <div
@@ -1383,14 +1638,12 @@ export default function SuperAdminCommandCenterPage() {
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs">
                           <span className="rounded-lg border border-zinc-800 bg-[#121215] px-2.5 py-1 font-mono text-[11px] text-zinc-300">
-                            {u.signup_method}
-                          </span>
-
-                          <span className="rounded-lg border border-zinc-800 bg-[#121215] px-2.5 py-1 font-mono text-[11px] text-zinc-300">
-                            {u.workspaces.length} Workspace
-                            {u.workspaces.length === 1 ? "" : "s"}
+                            Slots: {u.owned_workspaces_count} /{" "}
+                            <strong className="text-[#A3E635]">
+                              {u.max_workspaces_allowed || 1}
+                            </strong>
                           </span>
 
                           <span className="rounded-lg border border-zinc-800 bg-[#121215] px-2.5 py-1 font-mono text-[11px] text-[#A3E635]">
@@ -1399,47 +1652,96 @@ export default function SuperAdminCommandCenterPage() {
                         </div>
                       </button>
 
-                      {/* Expanded Row Details */}
+                      {/* Expanded User Grants & Workspaces */}
                       {isExpanded && (
                         <div className="space-y-4 border-t border-zinc-800/80 bg-[#121215]/70 p-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-xs text-zinc-400">
-                            <span>
-                              User ID:{" "}
-                              <code className="font-mono text-zinc-200">
-                                {u.user_id}
-                              </code>
-                            </span>
-                            <span>
-                              Owned:{" "}
-                              <strong className="text-white">
-                                {u.owned_workspaces_count}
-                              </strong>{" "}
-                              • Joined:{" "}
-                              <strong className="text-white">
-                                {u.joined_workspaces_count}
-                              </strong>
-                            </span>
-                            <span>
-                              Registered:{" "}
-                              <strong className="text-zinc-200">
-                                {u.created_at
-                                  ? new Date(u.created_at).toLocaleDateString()
-                                  : "Active"}
-                              </strong>
-                            </span>
+                          {/* User-Level Grant Bar: Extra Workspaces Allowance */}
+                          <div className="flex flex-col justify-between gap-3 rounded-xl border border-[#84CC16]/30 bg-[#09090B] p-3.5 sm:flex-row sm:items-center">
+                            <div>
+                              <p className="flex items-center gap-1.5 text-xs font-bold text-white">
+                                <Building2 className="h-3.5 w-3.5 text-[#84CC16]" />
+                                User Workspace Slots Allowance
+                              </p>
+                              <p className="text-[11px] text-zinc-400">
+                                Default limit is 1 workspace. Grant extra
+                                workspace slots so this client can create
+                                additional business workspaces.
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              {[1, 3, 5, 10].map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  disabled={isUserBusy}
+                                  onClick={() =>
+                                    handleUpdateUserAllowance(u.email, preset)
+                                  }
+                                  className={`rounded-lg border px-2.5 py-1 font-mono text-[11px] font-bold transition ${
+                                    allowanceVal === preset
+                                      ? "border-[#84CC16] bg-[#84CC16] text-[#09090B]"
+                                      : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-[#84CC16]"
+                                  }`}
+                                >
+                                  {preset} WS
+                                </button>
+                              ))}
+
+                              <input
+                                type="number"
+                                min={1}
+                                max={500}
+                                value={allowanceVal}
+                                onChange={(e) =>
+                                  setUserAllowances((prev) => ({
+                                    ...prev,
+                                    [u.email]: Math.max(
+                                      1,
+                                      Number(e.target.value) || 1
+                                    ),
+                                  }))
+                                }
+                                className="w-16 rounded-lg border border-zinc-800 bg-[#121215] px-2 py-1 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                              />
+
+                              <button
+                                type="button"
+                                disabled={isUserBusy}
+                                onClick={() =>
+                                  handleUpdateUserAllowance(
+                                    u.email,
+                                    allowanceVal
+                                  )
+                                }
+                                className="rounded-lg bg-[#84CC16] px-3 py-1 text-xs font-extrabold text-[#09090B] hover:bg-[#A3E635] disabled:opacity-50"
+                              >
+                                Save Slots
+                              </button>
+                            </div>
                           </div>
 
+                          {/* Workspaces Grid */}
                           {u.workspaces.length === 0 ? (
                             <p className="text-xs text-zinc-500">
                               No workspaces linked to this user account.
                             </p>
                           ) : (
-                            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                               {u.workspaces.map((ws) => {
-                                const isWsBusy = busyWorkspaceId === ws.id;
+                                const isWsBusy = busyKey === ws.id;
                                 const quotaInput =
                                   directoryQuotas[ws.id] ??
                                   ws.monthly_token_limit;
+                                const discountState = discountInputs[ws.id] || {
+                                  percent: ws.discount_percent || 0,
+                                  customPrice: "",
+                                  note: "",
+                                };
+                                const planChoice =
+                                  selectedPlanAssign[ws.id] ||
+                                  ws.plan_tier ||
+                                  "managed_starter";
                                 const pct = ws.usage_percent || 0;
                                 const barColor =
                                   pct >= 90
@@ -1454,7 +1756,7 @@ export default function SuperAdminCommandCenterPage() {
                                     className="flex flex-col justify-between gap-3 rounded-xl border border-zinc-800 bg-[#09090B] p-4"
                                   >
                                     <div className="space-y-3">
-                                      {/* Workspace Top Row */}
+                                      {/* Workspace Header */}
                                       <div className="flex flex-wrap items-start justify-between gap-2">
                                         <div>
                                           <div className="flex items-center gap-2">
@@ -1478,6 +1780,10 @@ export default function SuperAdminCommandCenterPage() {
                                             <span className="uppercase text-zinc-300">
                                               {ws.member_role}
                                             </span>
+                                            {ws.billing_cycle_end &&
+                                              ` • Renews: ${new Date(
+                                                ws.billing_cycle_end
+                                              ).toLocaleDateString()}`}
                                           </p>
                                         </div>
 
@@ -1494,22 +1800,27 @@ export default function SuperAdminCommandCenterPage() {
                                           >
                                             {formatPlanTierLabel(ws.plan_tier)}
                                           </span>
+                                          {ws.discount_percent > 0 && (
+                                            <span className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300">
+                                              {ws.discount_percent}% OFF
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
 
-                                      {/* Token Usage Progress Bar */}
-                                      <div className="space-y-1.5 rounded-lg border border-zinc-800/80 bg-[#121215] p-3">
+                                      {/* 1. Token Quota & Quick Bonus Top-Ups */}
+                                      <div className="space-y-2 rounded-lg border border-zinc-800/80 bg-[#121215] p-3">
                                         <div className="flex items-center justify-between text-[11px]">
                                           <span className="flex items-center gap-1 text-zinc-400">
                                             <Activity className="h-3 w-3 text-[#84CC16]" />
-                                            Monthly Token Consumption
+                                            Monthly Token Pool
                                           </span>
                                           <span className="font-mono text-zinc-200">
                                             {ws.tokens_used_this_month.toLocaleString()}{" "}
                                             /{" "}
                                             {ws.monthly_token_limit > 0
                                               ? ws.monthly_token_limit.toLocaleString()
-                                              : "BYOK Unlimited"}{" "}
+                                              : "0 (BYOK)"}{" "}
                                             {ws.monthly_token_limit > 0 &&
                                               `(${pct}%)`}
                                           </span>
@@ -1528,7 +1839,58 @@ export default function SuperAdminCommandCenterPage() {
                                           />
                                         </div>
 
-                                        {/* Inline Quota Editor */}
+                                        {/* Quick Bonus Top-Up Buttons */}
+                                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase text-zinc-400">
+                                            <Gift className="h-3 w-3 text-[#84CC16]" />
+                                            Bonus Top-Up:
+                                          </span>
+                                          {[
+                                            { label: "+500K", val: 500_000 },
+                                            { label: "+2M", val: 2_000_000 },
+                                            { label: "+5M", val: 5_000_000 },
+                                          ].map((b) => (
+                                            <button
+                                              key={b.label}
+                                              type="button"
+                                              disabled={isWsBusy}
+                                              onClick={() =>
+                                                handleWorkspaceDecision(
+                                                  ws.id,
+                                                  {
+                                                    action: "add_bonus_tokens",
+                                                    bonus_tokens: b.val,
+                                                  },
+                                                  `Added ${b.label} bonus tokens to ${ws.name}.`
+                                                )
+                                              }
+                                              className="rounded border border-[#84CC16]/35 bg-[#84CC16]/10 px-2 py-0.5 font-mono text-[10px] font-bold text-[#A3E635] hover:bg-[#84CC16] hover:text-[#09090B]"
+                                            >
+                                              {b.label}
+                                            </button>
+                                          ))}
+                                          <button
+                                            type="button"
+                                            disabled={isWsBusy}
+                                            onClick={() =>
+                                              handleWorkspaceDecision(
+                                                ws.id,
+                                                {
+                                                  action:
+                                                    "reset_monthly_usage",
+                                                },
+                                                `Reset monthly token usage counter to 0 for ${ws.name}.`
+                                              )
+                                            }
+                                            className="ml-auto inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-300 hover:border-amber-400 hover:text-amber-300"
+                                            title="Reset used tokens to 0"
+                                          >
+                                            <RotateCcw className="h-2.5 w-2.5" />
+                                            Reset Used
+                                          </button>
+                                        </div>
+
+                                        {/* Exact Quota Set */}
                                         <div className="flex items-center gap-2 pt-1">
                                           <input
                                             type="number"
@@ -1557,55 +1919,204 @@ export default function SuperAdminCommandCenterPage() {
                                                   monthly_token_limit:
                                                     quotaInput,
                                                 },
-                                                `Updated monthly token limit for ${
+                                                `Set monthly token quota for ${
                                                   ws.name
                                                 } to ${quotaInput.toLocaleString()}.`
                                               )
                                             }
-                                            className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-semibold text-zinc-200 transition hover:border-[#84CC16] hover:text-[#A3E635] disabled:opacity-50"
+                                            className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-semibold text-zinc-200 hover:border-[#84CC16] hover:text-[#A3E635]"
                                           >
-                                            Set Quota
+                                            Set Exact Quota
                                           </button>
                                         </div>
                                       </div>
 
-                                      {/* Configured Agents List */}
-                                      <div>
-                                        <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                                          <Cpu className="h-3 w-3 text-[#84CC16]" />
-                                          Configured Agents (
-                                          {ws.configured_agents.length})
-                                        </p>
-                                        {ws.configured_agents.length === 0 ? (
-                                          <p className="text-[11px] text-zinc-500">
-                                            No custom agent configs saved yet.
-                                          </p>
-                                        ) : (
-                                          <div className="flex flex-wrap gap-1.5">
-                                            {ws.configured_agents.map((ag) => (
-                                              <span
-                                                key={ag.id}
-                                                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-[#121215] px-2.5 py-1 font-mono text-[11px] text-zinc-300"
-                                              >
-                                                <span className="h-1.5 w-1.5 rounded-full bg-[#84CC16]" />
-                                                <span className="font-semibold text-white">
-                                                  {ag.agent_type}
-                                                </span>
-                                                <span className="text-zinc-500">
-                                                  ({ag.provider}/{ag.model_name}
-                                                  )
-                                                </span>
-                                              </span>
-                                            ))}
+                                      {/* 2. Direct Plan Assignment & Cycle Extension */}
+                                      <div className="space-y-2 rounded-lg border border-zinc-800/80 bg-[#121215] p-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                                            Direct Plan Assign &amp; Cycle Days
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={isWsBusy}
+                                            onClick={() =>
+                                              handleWorkspaceDecision(
+                                                ws.id,
+                                                {
+                                                  action: "extend_cycle",
+                                                  extra_days: 30,
+                                                },
+                                                `Extended billing cycle by +30 days for ${ws.name}.`
+                                              )
+                                            }
+                                            className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-[#A3E635] hover:border-[#84CC16]"
+                                          >
+                                            <CalendarPlus className="h-3 w-3" />
+                                            +30 Days
+                                          </button>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                          <select
+                                            value={planChoice}
+                                            onChange={(e) =>
+                                              setSelectedPlanAssign((prev) => ({
+                                                ...prev,
+                                                [ws.id]: e.target.value,
+                                              }))
+                                            }
+                                            className="w-full rounded-lg border border-zinc-800 bg-[#09090B] px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-[#84CC16]"
+                                          >
+                                            <option value="byok_free">
+                                              BYOK Free ($0)
+                                            </option>
+                                            <option value="managed_starter">
+                                              Managed Starter (2M tokens)
+                                            </option>
+                                            <option value="managed_growth">
+                                              Managed Growth (10M tokens)
+                                            </option>
+                                            <option value="managed_enterprise">
+                                              Managed Agency (35M tokens)
+                                            </option>
+                                          </select>
+
+                                          <button
+                                            type="button"
+                                            disabled={isWsBusy}
+                                            onClick={() =>
+                                              handleWorkspaceDecision(
+                                                ws.id,
+                                                {
+                                                  action: "assign_plan",
+                                                  plan_tier: planChoice,
+                                                },
+                                                `Assigned ${formatPlanTierLabel(
+                                                  planChoice
+                                                )} directly to ${ws.name}.`
+                                              )
+                                            }
+                                            className="shrink-0 rounded-lg bg-[#84CC16] px-3 py-1.5 text-[11px] font-extrabold text-[#09090B] hover:bg-[#A3E635]"
+                                          >
+                                            Apply Plan
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* 3. Custom Discount / Deal Pricing */}
+                                      <div className="space-y-2 rounded-lg border border-zinc-800/80 bg-[#121215] p-3">
+                                        <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                                          <Percent className="h-3 w-3" />
+                                          Custom Workspace Discount / Deal Price
+                                        </span>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="text-[10px] text-zinc-500">
+                                              Discount %
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              max={100}
+                                              value={discountState.percent}
+                                              onChange={(e) =>
+                                                setDiscountInputs((prev) => ({
+                                                  ...prev,
+                                                  [ws.id]: {
+                                                    ...discountState,
+                                                    percent: Math.min(
+                                                      100,
+                                                      Math.max(
+                                                        0,
+                                                        Number(
+                                                          e.target.value
+                                                        ) || 0
+                                                      )
+                                                    ),
+                                                  },
+                                                }))
+                                              }
+                                              className="mt-0.5 w-full rounded-lg border border-zinc-800 bg-[#09090B] px-2.5 py-1 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                                            />
                                           </div>
-                                        )}
+
+                                          <div>
+                                            <label className="text-[10px] text-zinc-500">
+                                              Custom Price ($/mo)
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              step="0.01"
+                                              placeholder="Optional"
+                                              value={discountState.customPrice}
+                                              onChange={(e) =>
+                                                setDiscountInputs((prev) => ({
+                                                  ...prev,
+                                                  [ws.id]: {
+                                                    ...discountState,
+                                                    customPrice: e.target.value,
+                                                  },
+                                                }))
+                                              }
+                                              className="mt-0.5 w-full rounded-lg border border-zinc-800 bg-[#09090B] px-2.5 py-1 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                                            />
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            placeholder="Deal note (e.g. Agency Partner 30% Off)"
+                                            value={discountState.note}
+                                            onChange={(e) =>
+                                              setDiscountInputs((prev) => ({
+                                                ...prev,
+                                                [ws.id]: {
+                                                  ...discountState,
+                                                  note: e.target.value,
+                                                },
+                                              }))
+                                            }
+                                            className="w-full rounded-lg border border-zinc-800 bg-[#09090B] px-2.5 py-1 text-xs text-zinc-200 outline-none focus:border-[#84CC16]"
+                                          />
+                                          <button
+                                            type="button"
+                                            disabled={isWsBusy}
+                                            onClick={() =>
+                                              handleWorkspaceDecision(
+                                                ws.id,
+                                                {
+                                                  action: "set_discount",
+                                                  discount_percent:
+                                                    discountState.percent,
+                                                  custom_monthly_price:
+                                                    discountState.customPrice !==
+                                                    ""
+                                                      ? Number(
+                                                          discountState.customPrice
+                                                        )
+                                                      : null,
+                                                  discount_note:
+                                                    discountState.note || null,
+                                                },
+                                                `Saved custom discount (${discountState.percent}% OFF) for ${ws.name}.`
+                                              )
+                                            }
+                                            className="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-400 hover:text-[#09090B]"
+                                          >
+                                            Save Deal
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
 
-                                    {/* Suspend / Reactivate Footer Control */}
+                                    {/* Suspend / Reactivate Footer */}
                                     <div className="flex items-center justify-between border-t border-zinc-800/80 pt-3">
                                       <span className="font-mono text-[10px] text-zinc-500">
-                                        ID: {ws.id}
+                                        Agents: {ws.configured_agents.length}
                                       </span>
 
                                       {ws.is_active ? (
@@ -1658,11 +2169,226 @@ export default function SuperAdminCommandCenterPage() {
         )}
 
         {/* ================================================================= */}
-        {/* TAB 4: AGENTS & QUOTA WATCH (PLATFORM GOVERNANCE)                 */}
+        {/* TAB 4: DEALS & PROMO CODES                                        */}
+        {/* ================================================================= */}
+        {activeTab === "deals" && (
+          <div className="space-y-6">
+            {/* Create Promo Code Card */}
+            <div className="rounded-2xl border border-zinc-800/90 bg-[#121215] p-6">
+              <div className="border-b border-zinc-800/80 pb-4">
+                <h2 className="text-base font-bold text-white">
+                  Create Promotional Discount Code
+                </h2>
+                <p className="text-xs text-zinc-400">
+                  Generate promo codes with percentage discounts, bonus tokens,
+                  and extra workspace slots that clients can redeem on /pricing.
+                </p>
+              </div>
+
+              <form
+                onSubmit={handleCreatePromoCode}
+                className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6"
+              >
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400">
+                    Promo Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="AGENCY30"
+                    value={promoCodeInput}
+                    onChange={(e) =>
+                      setPromoCodeInput(e.target.value.toUpperCase())
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 py-2 font-mono text-xs uppercase text-[#A3E635] outline-none focus:border-[#84CC16]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400">
+                    Discount (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={promoDiscountInput}
+                    onChange={(e) =>
+                      setPromoDiscountInput(Number(e.target.value) || 0)
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 py-2 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400">
+                    Bonus Tokens
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={100000}
+                    value={promoBonusTokensInput}
+                    onChange={(e) =>
+                      setPromoBonusTokensInput(Number(e.target.value) || 0)
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 py-2 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400">
+                    Extra Workspaces
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={promoExtraWsInput}
+                    onChange={(e) =>
+                      setPromoExtraWsInput(Number(e.target.value) || 0)
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 py-2 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400">
+                    Max Uses / Days
+                  </label>
+                  <div className="mt-1 flex gap-1.5">
+                    <input
+                      type="number"
+                      min={1}
+                      title="Max redemptions"
+                      value={promoMaxUsesInput}
+                      onChange={(e) =>
+                        setPromoMaxUsesInput(Number(e.target.value) || 1)
+                      }
+                      className="w-1/2 rounded-xl border border-zinc-800 bg-[#09090B] px-2 py-2 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      title="Valid days"
+                      value={promoValidDaysInput}
+                      onChange={(e) =>
+                        setPromoValidDaysInput(Number(e.target.value) || 30)
+                      }
+                      className="w-1/2 rounded-xl border border-zinc-800 bg-[#09090B] px-2 py-2 font-mono text-xs text-white outline-none focus:border-[#84CC16]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    disabled={busyKey === "create_promo"}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#84CC16] px-4 py-2 text-xs font-extrabold text-[#09090B] transition hover:bg-[#A3E635] disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create Promo
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Active Promo Codes Table */}
+            <div className="rounded-2xl border border-zinc-800/90 bg-[#121215] p-6">
+              <h3 className="text-sm font-bold text-white">
+                Active &amp; Historical Promo Codes
+              </h3>
+
+              {promoCodes.length === 0 ? (
+                <p className="mt-4 text-xs text-zinc-500">
+                  No promo codes created yet. Create one above to offer
+                  promotional discounts or bonus tokens.
+                </p>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-500">
+                        <th className="py-2.5 pr-4">Code</th>
+                        <th className="py-2.5 pr-4">Discount</th>
+                        <th className="py-2.5 pr-4">Bonus Perks</th>
+                        <th className="py-2.5 pr-4">Redemptions</th>
+                        <th className="py-2.5 pr-4">Expires</th>
+                        <th className="py-2.5 pr-4">Status</th>
+                        <th className="py-2.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/70">
+                      {promoCodes.map((p) => (
+                        <tr key={p.id} className="hover:bg-[#09090B]/60">
+                          <td className="py-3 pr-4 font-mono font-extrabold text-[#A3E635]">
+                            {p.code}
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-amber-300">
+                            {p.discount_percent}% OFF
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-zinc-300">
+                            +{formatCompactNumber(p.bonus_tokens)} tokens • +
+                            {p.extra_workspaces} WS
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-zinc-300">
+                            {p.times_used} / {p.max_uses}
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-zinc-400">
+                            {p.expires_at
+                              ? new Date(p.expires_at).toLocaleDateString()
+                              : "Never"}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span
+                              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                                p.is_active
+                                  ? "bg-[#84CC16]/15 text-[#A3E635]"
+                                  : "bg-zinc-800 text-zinc-400"
+                              }`}
+                            >
+                              {p.is_active ? "ACTIVE" : "PAUSED"}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleToggleOrDeletePromo(p.id, "toggle")
+                                }
+                                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 hover:border-[#84CC16]"
+                              >
+                                {p.is_active ? "Pause" : "Enable"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleToggleOrDeletePromo(p.id, "delete")
+                                }
+                                className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-1.5 text-rose-300 hover:bg-rose-500/20"
+                                title="Delete promo code"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* TAB 5: AGENTS & QUOTA WATCHLIST                                   */}
         {/* ================================================================= */}
         {activeTab === "governance" && (
           <div className="space-y-6">
-            {/* High Usage & Suspended Workspaces Watchlist */}
             <div className="rounded-2xl border border-zinc-800/90 bg-[#121215] p-6">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-4">
                 <div>
@@ -1721,7 +2447,7 @@ export default function SuperAdminCommandCenterPage() {
                       {!ws.is_active ? (
                         <button
                           type="button"
-                          disabled={busyWorkspaceId === ws.id}
+                          disabled={busyKey === ws.id}
                           onClick={() =>
                             handleWorkspaceDecision(
                               ws.id,
@@ -1739,7 +2465,7 @@ export default function SuperAdminCommandCenterPage() {
                           onClick={() => handleSelectTab("directory")}
                           className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:border-[#84CC16] hover:text-[#A3E635]"
                         >
-                          Adjust Quota
+                          Add Bonus Tokens
                         </button>
                       )}
                     </div>
@@ -1810,7 +2536,9 @@ export default function SuperAdminCommandCenterPage() {
                                   : "border border-[#84CC16]/35 bg-[#84CC16]/15 text-[#A3E635]"
                               }`}
                             >
-                              {ag.has_custom_key ? "BYOK Encrypted" : "Managed Pool"}
+                              {ag.has_custom_key
+                                ? "BYOK Encrypted"
+                                : "Managed Pool"}
                             </span>
                           </td>
                         </tr>

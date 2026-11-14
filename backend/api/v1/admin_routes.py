@@ -1,192 +1,138 @@
 import os
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Literal, Dict, Any, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.database.connection import get_db
+from backend.database.session import get_db
 
-MANAGED_TIER_DEFAULT_LIMITS: Dict[str, int] = {
+load_dotenv()
+
+router = APIRouter(prefix="/admin", tags=["Super Admin Command Center"])
+
+PLAN_DEFAULT_QUOTAS: dict[str, int] = {
+    "byok_free": 0,
     "managed_starter": 2_000_000,
     "managed_growth": 10_000_000,
     "managed_enterprise": 35_000_000,
 }
 
-INDUSTRY_LABELS: Dict[str, str] = {
-    "agency": "Marketing Agency",
+INDUSTRY_LABELS: dict[str, str] = {
+    "agency": "Agency",
     "real_estate": "Real Estate",
     "ecommerce": "E-Commerce",
     "healthcare": "Healthcare",
     "education": "Education",
-    "saas": "SaaS & Tech",
+    "saas": "SaaS",
     "other": "Other",
 }
 
 
-def _get_allowed_super_admins() -> set[str]:
-    raw = os.getenv("SUPER_ADMIN_EMAILS", "")
+def _get_super_admin_emails() -> set[str]:
+    raw = os.getenv("SUPER_ADMIN_EMAILS") or os.getenv("SUPER_ADMIN_EMAIL") or ""
     return {email.strip().lower() for email in raw.split(",") if email.strip()}
 
 
-def require_super_admin(
+def verify_super_admin(
     x_user_email: Optional[str] = Header(default=None, alias="X-User-Email"),
-    x_admin_email: Optional[str] = Header(default=None, alias="X-Admin-Email"),
     admin_email: Optional[str] = Query(default=None),
 ) -> str:
-    """
-    Security boundary for all /api/v1/admin/* endpoints.
-    Verifies caller email against SUPER_ADMIN_EMAILS configured in root .env.
-    """
-    allowed_admins = _get_allowed_super_admins()
-    caller_email = (x_user_email or x_admin_email or admin_email or "").strip().lower()
-
-    if not allowed_admins or not caller_email or caller_email not in allowed_admins:
+    allowed_admins = _get_super_admin_emails()
+    if not allowed_admins:
         raise HTTPException(
             status_code=403,
-            detail="Forbidden: Super Admin privileges are required to access this resource.",
+            detail="Super Admin access is not configured on the server.",
         )
-    return caller_email
+
+    caller = (x_user_email or admin_email or "").strip().lower()
+    if not caller or caller not in allowed_admins:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super Admin privileges are required.",
+        )
+    return caller
 
 
-router = APIRouter(
-    prefix="/admin",
-    tags=["Super Admin Command Center"],
-    dependencies=[Depends(require_super_admin)],
-)
-
-
-class WorkspaceAdminDecisionRequest(BaseModel):
-    action: Optional[
-        Literal[
-            "approve_managed",
-            "reject_managed",
-            "update_quota",
-            "suspend",
-            "reactivate",
-        ]
-    ] = Field(
-        default=None,
-        description="Administrative action to execute on the target workspace",
+class AdminWorkspaceDecisionRequest(BaseModel):
+    action: str = Field(
+        ...,
+        description=(
+            "One of: approve_managed, reject_managed, assign_plan, "
+            "add_bonus_tokens, reset_monthly_usage, extend_cycle, "
+            "set_discount, update_quota, suspend, reactivate"
+        ),
     )
-    plan_tier: Optional[str] = Field(
-        default=None,
-        description="Target Managed plan tier (managed_starter, managed_growth, managed_enterprise)",
-    )
-    monthly_token_limit: Optional[int] = Field(
-        default=None,
-        ge=0,
-        description="Custom monthly token limit for the workspace",
-    )
-    is_active: Optional[bool] = Field(
-        default=None,
-        description="Explicit workspace active status override",
-    )
+    plan_tier: Optional[str] = Field(default=None)
+    monthly_token_limit: Optional[int] = Field(default=None, ge=0)
+    bonus_tokens: Optional[int] = Field(default=None, ge=1)
+    extra_days: Optional[int] = Field(default=None, ge=1, le=365)
+    discount_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    custom_monthly_price: Optional[float] = Field(default=None, ge=0)
+    discount_note: Optional[str] = Field(default=None)
 
 
-def _table_exists(db: Session, qualified_table: str) -> bool:
-    try:
-        res = db.execute(
-            text("SELECT to_regclass(:tbl) IS NOT NULL AS exists_flag"),
-            {"tbl": qualified_table},
-        ).fetchone()
-        return bool(res and res.exists_flag)
-    except Exception:
-        db.rollback()
-        return False
+class UserWorkspaceAllowanceRequest(BaseModel):
+    max_workspaces_allowed: int = Field(..., ge=1, le=500)
 
 
-def _fetch_auth_signup_providers(db: Session) -> Dict[str, str]:
-    """
-    Safely inspects Supabase auth.users metadata if accessible to determine signup provider
-    (Google OAuth vs Email OTP / Password). Falls back gracefully if restricted.
-    """
-    providers: Dict[str, str] = {}
-    try:
-        rows = db.execute(
-            text(
-                """
-                SELECT
-                    LOWER(TRIM(email)) AS email,
-                    LOWER(COALESCE(raw_app_meta_data->>'provider', 'email')) AS provider
-                FROM auth.users
-                WHERE email IS NOT NULL
-                """
-            )
-        ).fetchall()
-        for r in rows:
-            if r.email:
-                providers[r.email] = r.provider
-    except Exception:
-        db.rollback()
-    return providers
-
-
-def _resolve_signup_method(
-    email: str,
-    hashed_password: Optional[str],
-    auth_providers: Dict[str, str],
-) -> str:
-    provider = auth_providers.get(email.lower())
-    if provider == "google":
-        return "Google OAuth"
-    if provider and provider != "email":
-        return f"{provider.title()} OAuth"
-    if not hashed_password or hashed_password == "SUPABASE_AUTH_MANAGED":
-        return "Supabase Auth (OTP / OAuth)"
-    return "Email & Password"
+class PromoCodeCreateRequest(BaseModel):
+    code: str = Field(..., min_length=3, max_length=40)
+    discount_percent: int = Field(default=20, ge=0, le=100)
+    bonus_tokens: int = Field(default=0, ge=0)
+    extra_workspaces: int = Field(default=0, ge=0, le=100)
+    max_uses: int = Field(default=50, ge=1, le=100000)
+    valid_days: Optional[int] = Field(default=30, ge=1, le=3650)
 
 
 @router.get("/overview")
 def get_admin_platform_overview(
-    _admin_email: str = Depends(require_super_admin),
+    _admin: str = Depends(verify_super_admin),
     db: Session = Depends(get_db),
-):
-    """Returns platform-wide KPIs, role breakdowns, token usage, and industry distribution."""
-    # 1. Users & Role Breakdown across users + workspace_members
-    user_rows = db.execute(
+) -> dict[str, Any]:
+    users_rows = db.execute(
         text(
             """
-            SELECT
-                LOWER(TRIM(email)) AS email,
-                LOWER(COALESCE(role, 'owner')) AS role
+            SELECT LOWER(email) AS email, LOWER(COALESCE(role, 'owner')) AS role
             FROM users
             WHERE email IS NOT NULL AND TRIM(email) <> ''
             """
         )
     ).fetchall()
 
-    member_rows = []
-    if _table_exists(db, "public.workspace_members"):
-        member_rows = db.execute(
-            text(
-                """
-                SELECT
-                    LOWER(TRIM(user_email)) AS email,
-                    LOWER(COALESCE(role, 'operator')) AS role
-                FROM workspace_members
-                WHERE user_email IS NOT NULL AND TRIM(user_email) <> ''
-                """
-            )
-        ).fetchall()
+    member_rows = db.execute(
+        text(
+            """
+            SELECT LOWER(user_email) AS email, LOWER(COALESCE(role, 'operator')) AS role
+            FROM workspace_members
+            WHERE user_email IS NOT NULL AND TRIM(user_email) <> ''
+            """
+        )
+    ).fetchall()
 
-    role_by_email: Dict[str, str] = {}
-    for r in user_rows:
-        role_by_email[r.email] = "owner" if r.role in ("owner", "admin") else "operator"
-    for m in member_rows:
-        existing_role = role_by_email.get(m.email)
-        incoming_role = "owner" if m.role in ("owner", "admin") else "operator"
-        if existing_role != "owner":
-            role_by_email[m.email] = incoming_role
+    user_roles: dict[str, str] = {}
+    for row in users_rows:
+        email = (row.email or "").strip().lower()
+        if email:
+            user_roles[email] = "owner" if row.role in ("owner", "admin") else row.role
 
-    total_users = len(role_by_email)
-    owners_count = sum(1 for r in role_by_email.values() if r == "owner")
-    operators_count = sum(1 for r in role_by_email.values() if r == "operator")
+    for row in member_rows:
+        email = (row.email or "").strip().lower()
+        if not email:
+            continue
+        if email not in user_roles:
+            user_roles[email] = "owner" if row.role == "owner" else "operator"
+        elif row.role == "owner":
+            user_roles[email] = "owner"
 
-    # 2. Workspaces Breakdown (Plan Mode, Plan Tier, Request Status, Active Status, Tokens, Industry)
+    total_users = len(user_roles)
+    owners_count = sum(1 for r in user_roles.values() if r == "owner")
+    operators_count = max(0, total_users - owners_count)
+
     ws_rows = db.execute(
         text(
             """
@@ -196,84 +142,74 @@ def get_admin_platform_overview(
                 LOWER(COALESCE(plan_mode, 'byok')) AS plan_mode,
                 LOWER(COALESCE(plan_tier, 'byok_free')) AS plan_tier,
                 LOWER(COALESCE(managed_request_status, 'none')) AS managed_request_status,
-                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
+                LOWER(COALESCE(industry, 'agency')) AS industry,
                 COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
-                LOWER(COALESCE(industry, 'agency')) AS industry
+                COALESCE(monthly_token_limit, 0) AS monthly_token_limit
             FROM workspaces
             """
         )
     ).fetchall()
 
     total_workspaces = len(ws_rows)
-    active_workspaces = 0
-    suspended_workspaces = 0
-    by_plan_mode: Dict[str, int] = {"byok": 0, "managed": 0}
-    by_plan_tier: Dict[str, int] = {
+    active_workspaces = sum(1 for w in ws_rows if bool(w.is_active))
+    suspended_workspaces = total_workspaces - active_workspaces
+
+    plan_mode_counts = {"byok": 0, "managed": 0}
+    plan_tier_counts = {
         "byok_free": 0,
         "managed_starter": 0,
         "managed_growth": 0,
         "managed_enterprise": 0,
     }
-    by_request_status: Dict[str, int] = {
-        "none": 0,
-        "pending": 0,
-        "approved": 0,
-        "rejected": 0,
-    }
-    industry_counts: Dict[str, int] = {}
+    request_status_counts = {"none": 0, "pending": 0, "approved": 0, "rejected": 0}
+    industry_counts: dict[str, int] = {}
+
     total_tokens_consumed = 0
     total_monthly_token_quota = 0
 
     for w in ws_rows:
-        if w.is_active:
-            active_workspaces += 1
-        else:
-            suspended_workspaces += 1
-
-        mode = w.plan_mode if w.plan_mode in ("byok", "managed") else "byok"
-        by_plan_mode[mode] = by_plan_mode.get(mode, 0) + 1
+        mode = w.plan_mode if w.plan_mode in plan_mode_counts else "byok"
+        plan_mode_counts[mode] += 1
 
         tier = w.plan_tier or "byok_free"
-        by_plan_tier[tier] = by_plan_tier.get(tier, 0) + 1
+        plan_tier_counts[tier] = plan_tier_counts.get(tier, 0) + 1
 
         req_status = w.managed_request_status or "none"
-        by_request_status[req_status] = by_request_status.get(req_status, 0) + 1
+        request_status_counts[req_status] = request_status_counts.get(req_status, 0) + 1
+
+        ind = (w.industry or "agency").strip().lower()
+        industry_counts[ind] = industry_counts.get(ind, 0) + 1
 
         total_tokens_consumed += int(w.tokens_used_this_month or 0)
         total_monthly_token_quota += int(w.monthly_token_limit or 0)
 
-        ind = w.industry or "other"
-        industry_counts[ind] = industry_counts.get(ind, 0) + 1
-
-    industry_distribution = []
-    for ind_key, count in sorted(industry_counts.items(), key=lambda x: x[1], reverse=True):
-        pct = round((count / total_workspaces) * 100, 1) if total_workspaces > 0 else 0.0
-        industry_distribution.append(
-            {
-                "industry": ind_key,
-                "label": INDUSTRY_LABELS.get(ind_key, ind_key.replace("_", " ").title()),
-                "count": count,
-                "percentage": pct,
-            }
-        )
-
-    # 3. Total Configured Agents
     agent_count_row = db.execute(
         text("SELECT COUNT(*) AS cnt FROM agent_configs")
     ).fetchone()
     total_configured_agents = int(agent_count_row.cnt or 0) if agent_count_row else 0
 
-    # 4. Total Conversations / Threads from LangGraph Checkpointer
     total_conversations = 0
-    if _table_exists(db, "public.checkpoints"):
-        try:
-            conv_row = db.execute(
-                text("SELECT COUNT(DISTINCT thread_id) AS cnt FROM checkpoints")
-            ).fetchone()
-            total_conversations = int(conv_row.cnt or 0) if conv_row else 0
-        except Exception:
-            db.rollback()
-            total_conversations = 0
+    try:
+        conv_row = db.execute(
+            text("SELECT COUNT(DISTINCT thread_id) AS cnt FROM checkpoints")
+        ).fetchone()
+        total_conversations = int(conv_row.cnt or 0) if conv_row else 0
+    except Exception:
+        total_conversations = 0
+
+    industry_distribution = [
+        {
+            "industry": ind,
+            "label": INDUSTRY_LABELS.get(ind, ind.replace("_", " ").title()),
+            "count": count,
+            "percentage": round((count / total_workspaces) * 100, 1)
+            if total_workspaces > 0
+            else 0.0,
+        }
+        for ind, count in sorted(
+            industry_counts.items(), key=lambda item: item[1], reverse=True
+        )
+    ]
 
     return {
         "total_users": total_users,
@@ -282,9 +218,9 @@ def get_admin_platform_overview(
         "total_workspaces": total_workspaces,
         "active_workspaces": active_workspaces,
         "suspended_workspaces": suspended_workspaces,
-        "workspaces_by_plan_mode": by_plan_mode,
-        "workspaces_by_plan_tier": by_plan_tier,
-        "workspaces_by_request_status": by_request_status,
+        "workspaces_by_plan_mode": plan_mode_counts,
+        "workspaces_by_plan_tier": plan_tier_counts,
+        "workspaces_by_request_status": request_status_counts,
         "total_configured_agents": total_configured_agents,
         "total_conversations": total_conversations,
         "total_tokens_consumed": total_tokens_consumed,
@@ -295,17 +231,10 @@ def get_admin_platform_overview(
 
 @router.get("/users")
 def get_admin_users_directory(
-    _admin_email: str = Depends(require_super_admin),
+    _admin: str = Depends(verify_super_admin),
     db: Session = Depends(get_db),
-):
-    """
-    Returns all registered users with signup methods, owned/joined workspaces,
-    billing quotas, status, configured agents, and pending Managed Plan requests.
-    """
-    auth_providers = _fetch_auth_signup_providers(db)
-
-    # 1. Fetch all workspaces
-    ws_rows = db.execute(
+) -> dict[str, Any]:
+    workspaces_rows = db.execute(
         text(
             """
             SELECT
@@ -316,13 +245,17 @@ def get_admin_users_directory(
                 LOWER(COALESCE(plan_mode, 'byok')) AS plan_mode,
                 LOWER(COALESCE(plan_tier, 'byok_free')) AS plan_tier,
                 requested_plan_tier,
-                LOWER(COALESCE(billing_interval, 'monthly')) AS billing_interval,
+                COALESCE(billing_interval, 'monthly') AS billing_interval,
                 COALESCE(managed_approved, FALSE) AS managed_approved,
                 LOWER(COALESCE(managed_request_status, 'none')) AS managed_request_status,
-                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
-                COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
-                billing_cycle_end,
                 LOWER(COALESCE(industry, 'agency')) AS industry,
+                COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
+                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
+                COALESCE(discount_percent, 0) AS discount_percent,
+                custom_monthly_price,
+                discount_note,
+                applied_promo_code,
+                billing_cycle_end,
                 created_at
             FROM workspaces
             ORDER BY created_at DESC
@@ -330,7 +263,6 @@ def get_admin_users_directory(
         )
     ).fetchall()
 
-    # 2. Fetch configured agents grouped by workspace_id
     agent_rows = db.execute(
         text(
             """
@@ -341,69 +273,74 @@ def get_admin_users_directory(
                 provider,
                 model_name,
                 (encrypted_api_key IS NOT NULL AND TRIM(encrypted_api_key) <> '') AS has_custom_key,
-                COALESCE(is_active, TRUE) AS is_active,
-                created_at
+                TRUE AS is_active
             FROM agent_configs
-            ORDER BY created_at DESC
+            ORDER BY id DESC
             """
         )
     ).fetchall()
 
-    agents_by_ws: Dict[str, List[Dict[str, Any]]] = {}
-    for a in agent_rows:
-        wid = str(a.workspace_id)
-        agents_by_ws.setdefault(wid, []).append(
+    agents_by_workspace: dict[str, list[dict[str, Any]]] = {}
+    for ag in agent_rows:
+        wid = str(ag.workspace_id)
+        agents_by_workspace.setdefault(wid, []).append(
             {
-                "id": str(a.id),
-                "agent_type": a.agent_type,
-                "provider": a.provider,
-                "model_name": a.model_name,
-                "has_custom_key": bool(a.has_custom_key),
-                "is_active": bool(a.is_active),
+                "id": str(ag.id),
+                "agent_type": ag.agent_type,
+                "provider": ag.provider,
+                "model_name": ag.model_name,
+                "has_custom_key": bool(ag.has_custom_key),
+                "is_active": bool(ag.is_active),
             }
         )
 
-    workspaces_by_id: Dict[str, Dict[str, Any]] = {}
-    for w in ws_rows:
+    workspaces_map: dict[str, dict[str, Any]] = {}
+    for w in workspaces_rows:
         wid = str(w.id)
-        limit = int(w.monthly_token_limit or 0)
         used = int(w.tokens_used_this_month or 0)
-        usage_pct = round(min(100.0, (used / limit) * 100), 1) if limit > 0 else 0.0
+        limit = int(w.monthly_token_limit or 0)
+        usage_pct = round((used / limit) * 100, 1) if limit > 0 else 0.0
 
-        workspaces_by_id[wid] = {
+        workspaces_map[wid] = {
             "id": wid,
             "workspace_id": wid,
             "name": w.name,
             "slug": w.slug,
-            "industry": w.industry,
-            "plan_tier": w.plan_tier,
-            "plan_mode": w.plan_mode,
+            "industry": w.industry or "agency",
+            "plan_tier": w.plan_tier or "byok_free",
+            "plan_mode": w.plan_mode or "byok",
             "requested_plan_tier": w.requested_plan_tier,
-            "billing_interval": w.billing_interval,
-            "managed_request_status": w.managed_request_status,
+            "billing_interval": w.billing_interval or "monthly",
             "managed_approved": bool(w.managed_approved),
+            "managed_request_status": w.managed_request_status or "none",
             "tokens_used_this_month": used,
             "monthly_token_limit": limit,
             "usage_percent": usage_pct,
-            "billing_cycle_end": (
-                w.billing_cycle_end.isoformat() if w.billing_cycle_end else None
-            ),
+            "discount_percent": int(w.discount_percent or 0),
+            "custom_monthly_price": float(w.custom_monthly_price)
+            if w.custom_monthly_price is not None
+            else None,
+            "discount_note": w.discount_note,
+            "applied_promo_code": w.applied_promo_code,
+            "billing_cycle_end": w.billing_cycle_end.isoformat()
+            if w.billing_cycle_end
+            else None,
             "is_active": bool(w.is_active),
-            "configured_agents": agents_by_ws.get(wid, []),
+            "configured_agents": agents_by_workspace.get(wid, []),
             "created_at": w.created_at.isoformat() if w.created_at else None,
         }
 
-    # 3. Fetch primary users table
-    user_rows = db.execute(
+    users_table_rows = db.execute(
         text(
             """
             SELECT
                 id,
                 workspace_id,
-                LOWER(TRIM(email)) AS email,
-                hashed_password,
+                email,
                 full_name,
+                hashed_password,
                 LOWER(COALESCE(role, 'owner')) AS role,
+                COALESCE(max_workspaces_allowed, 1) AS max_workspaces_allowed,
                 created_at
             FROM users
             WHERE email IS NOT NULL AND TRIM(email) <> ''
@@ -412,322 +349,618 @@ def get_admin_users_directory(
         )
     ).fetchall()
 
-    users_map: Dict[str, Dict[str, Any]] = {}
-    ws_owner_lookup: Dict[str, Dict[str, str]] = {}
+    members_table_rows = db.execute(
+        text(
+            """
+            SELECT
+                workspace_id,
+                user_email,
+                LOWER(COALESCE(role, 'operator')) AS role,
+                LOWER(COALESCE(status, 'active')) AS status,
+                created_at
+            FROM workspace_members
+            WHERE user_email IS NOT NULL AND TRIM(user_email) <> ''
+            """
+        )
+    ).fetchall()
 
-    for u in user_rows:
-        email = u.email
-        wid = str(u.workspace_id) if u.workspace_id else None
-        normalized_role = "owner" if u.role in ("owner", "admin") else "operator"
-        full_name = (u.full_name or "").strip() or email.split("@")[0]
+    users_directory: dict[str, dict[str, Any]] = {}
 
-        users_map[email] = {
-            "user_id": str(u.id),
-            "email": email,
-            "full_name": full_name,
-            "primary_role": normalized_role,
-            "signup_method": _resolve_signup_method(
-                email, u.hashed_password, auth_providers
-            ),
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-            "_workspace_roles": {},
-        }
+    for u in users_table_rows:
+        email = (u.email or "").strip().lower()
+        if not email:
+            continue
 
-        if wid and wid in workspaces_by_id:
-            users_map[email]["_workspace_roles"][wid] = normalized_role
-            if normalized_role == "owner":
-                ws_owner_lookup[wid] = {"email": email, "full_name": full_name}
+        hp = u.hashed_password or ""
+        if hp.startswith("oauth:"):
+            signup_method = "Google OAuth"
+        elif hp.startswith("supabase:"):
+            signup_method = "Email & OTP"
+        else:
+            signup_method = "Direct / Password"
 
-    # 4. Merge workspace_memberships so multi-workspace owners & invited operators are included
-    if _table_exists(db, "public.workspace_members"):
-        member_rows = db.execute(
-            text(
-                """
-                SELECT
-                    workspace_id,
-                    LOWER(TRIM(user_email)) AS email,
-                    user_id,
-                    LOWER(COALESCE(role, 'operator')) AS role,
-                    created_at
-                FROM workspace_members
-                WHERE user_email IS NOT NULL AND TRIM(user_email) <> ''
-                ORDER BY created_at ASC
-                """
+        normalized_role = "owner" if u.role in ("owner", "admin") else u.role
+        allowance = int(u.max_workspaces_allowed or 1)
+
+        if email not in users_directory:
+            users_directory[email] = {
+                "user_id": str(u.id),
+                "email": email,
+                "full_name": u.full_name or email.split("@")[0],
+                "primary_role": normalized_role,
+                "signup_method": signup_method,
+                "max_workspaces_allowed": allowance,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "_workspace_roles": {},
+            }
+        else:
+            users_directory[email]["max_workspaces_allowed"] = max(
+                users_directory[email]["max_workspaces_allowed"], allowance
             )
-        ).fetchall()
 
-        for m in member_rows:
-            email = m.email
-            wid = str(m.workspace_id) if m.workspace_id else None
-            member_role = "owner" if m.role in ("owner", "admin") else "operator"
+        if u.workspace_id:
+            wid = str(u.workspace_id)
+            if wid in workspaces_map:
+                users_directory[email]["_workspace_roles"][wid] = normalized_role
 
-            if email not in users_map:
-                users_map[email] = {
-                    "user_id": str(m.user_id) if m.user_id else email,
-                    "email": email,
-                    "full_name": email.split("@")[0],
-                    "primary_role": member_role,
-                    "signup_method": _resolve_signup_method(email, None, auth_providers),
-                    "created_at": m.created_at.isoformat() if m.created_at else None,
-                    "_workspace_roles": {},
-                }
-            elif member_role == "owner":
-                users_map[email]["primary_role"] = "owner"
+    for m in members_table_rows:
+        email = (m.user_email or "").strip().lower()
+        wid = str(m.workspace_id) if m.workspace_id else ""
+        if not email or wid not in workspaces_map:
+            continue
 
-            if wid and wid in workspaces_by_id:
-                existing_ws_role = users_map[email]["_workspace_roles"].get(wid)
-                if existing_ws_role != "owner":
-                    users_map[email]["_workspace_roles"][wid] = member_role
+        member_role = m.role or "operator"
+        if email not in users_directory:
+            users_directory[email] = {
+                "user_id": f"invited:{email}",
+                "email": email,
+                "full_name": email.split("@")[0],
+                "primary_role": member_role,
+                "signup_method": "Team Invite",
+                "max_workspaces_allowed": 1,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "_workspace_roles": {wid: member_role},
+            }
+        else:
+            existing_role = users_directory[email]["_workspace_roles"].get(wid)
+            if existing_role != "owner":
+                users_directory[email]["_workspace_roles"][wid] = member_role
+            if member_role == "owner":
+                users_directory[email]["primary_role"] = "owner"
 
-                if member_role == "owner" and wid not in ws_owner_lookup:
-                    ws_owner_lookup[wid] = {
-                        "email": email,
-                        "full_name": users_map[email]["full_name"],
-                    }
+    formatted_users: list[dict[str, Any]] = []
+    workspace_owners: dict[str, dict[str, str]] = {}
 
-    # 5. Assemble final user list with nested workspaces
-    formatted_users: List[Dict[str, Any]] = []
-    for email, udata in users_map.items():
-        ws_roles: Dict[str, str] = udata.pop("_workspace_roles")
-        nested_workspaces: List[Dict[str, Any]] = []
+    for email, record in users_directory.items():
+        ws_roles: dict[str, str] = record.pop("_workspace_roles")
+        nested_workspaces: list[dict[str, Any]] = []
         owned_count = 0
         joined_count = 0
 
-        for wid, mrole in ws_roles.items():
-            ws_copy = dict(workspaces_by_id[wid])
-            ws_copy["member_role"] = mrole
+        for wid, role in ws_roles.items():
+            ws_copy = dict(workspaces_map[wid])
+            ws_copy["member_role"] = role
             nested_workspaces.append(ws_copy)
-            if mrole == "owner":
+
+            if role == "owner":
                 owned_count += 1
+                workspace_owners[wid] = {
+                    "owner_email": email,
+                    "owner_name": record["full_name"],
+                }
             else:
                 joined_count += 1
+                if wid not in workspace_owners:
+                    workspace_owners[wid] = {
+                        "owner_email": email,
+                        "owner_name": record["full_name"],
+                    }
 
-        udata["total_workspaces"] = len(nested_workspaces)
-        udata["owned_workspaces_count"] = owned_count
-        udata["joined_workspaces_count"] = joined_count
-        udata["workspaces"] = nested_workspaces
-        formatted_users.append(udata)
+        nested_workspaces.sort(
+            key=lambda item: (0 if item["member_role"] == "owner" else 1, item["name"])
+        )
 
-    # Sort users by created_at descending
+        record["total_workspaces"] = len(nested_workspaces)
+        record["owned_workspaces_count"] = owned_count
+        record["joined_workspaces_count"] = joined_count
+        record["workspaces"] = nested_workspaces
+        formatted_users.append(record)
+
     formatted_users.sort(
-        key=lambda item: item.get("created_at") or "",
-        reverse=True,
+        key=lambda item: (
+            0 if item["primary_role"] == "owner" else 1,
+            -item["total_workspaces"],
+            item["email"],
+        )
     )
 
-    # 6. Build Pending Managed Plan Approval Queue
-    pending_requests: List[Dict[str, Any]] = []
-    for wid, ws_data in workspaces_by_id.items():
-        if ws_data["managed_request_status"] == "pending":
-            req_tier = (ws_data.get("requested_plan_tier") or "managed_starter").lower()
-            if req_tier not in MANAGED_TIER_DEFAULT_LIMITS:
-                req_tier = "managed_starter"
-            owner_info = ws_owner_lookup.get(
-                wid, {"email": "owner@workspace.local", "full_name": "Workspace Owner"}
+    pending_requests: list[dict[str, Any]] = []
+    for wid, ws in workspaces_map.items():
+        if ws["managed_request_status"] == "pending":
+            req_tier = (ws.get("requested_plan_tier") or "managed_starter").lower()
+            default_quota = PLAN_DEFAULT_QUOTAS.get(req_tier, 2_000_000)
+            owner_meta = workspace_owners.get(
+                wid, {"owner_email": "unknown@client.com", "owner_name": "Workspace Owner"}
             )
             pending_requests.append(
                 {
                     "workspace_id": wid,
-                    "workspace_name": ws_data["name"],
-                    "slug": ws_data["slug"],
-                    "industry": ws_data["industry"],
-                    "owner_email": owner_info["email"],
-                    "owner_name": owner_info["full_name"],
+                    "workspace_name": ws["name"],
+                    "slug": ws["slug"],
+                    "industry": ws["industry"],
+                    "owner_email": owner_meta["owner_email"],
+                    "owner_name": owner_meta["owner_name"],
                     "requested_plan_tier": req_tier,
-                    "billing_interval": ws_data["billing_interval"],
-                    "current_monthly_token_limit": ws_data["monthly_token_limit"],
-                    "default_monthly_token_limit": MANAGED_TIER_DEFAULT_LIMITS[req_tier],
-                    "created_at": ws_data["created_at"],
+                    "billing_interval": ws["billing_interval"],
+                    "current_monthly_token_limit": ws["monthly_token_limit"],
+                    "default_monthly_token_limit": default_quota,
+                    "discount_percent": ws["discount_percent"],
+                    "custom_monthly_price": ws["custom_monthly_price"],
+                    "applied_promo_code": ws["applied_promo_code"],
+                    "created_at": ws["created_at"],
                 }
             )
 
     return {
         "total_users": len(formatted_users),
-        "users": formatted_users,
         "pending_managed_requests": pending_requests,
+        "users": formatted_users,
+    }
+
+
+@router.patch("/users/{user_email}/allowance")
+def update_user_workspace_allowance(
+    user_email: str,
+    payload: UserWorkspaceAllowanceRequest,
+    _admin: str = Depends(verify_super_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    clean_email = user_email.strip().lower()
+    if not clean_email:
+        raise HTTPException(status_code=400, detail="Valid user email is required.")
+
+    result = db.execute(
+        text(
+            """
+            UPDATE users
+            SET max_workspaces_allowed = :allowance
+            WHERE LOWER(email) = :email
+            """
+        ),
+        {"allowance": payload.max_workspaces_allowed, "email": clean_email},
+    )
+    db.commit()
+
+    return {
+        "status": "updated",
+        "email": clean_email,
+        "max_workspaces_allowed": payload.max_workspaces_allowed,
+        "rows_updated": result.rowcount or 0,
     }
 
 
 @router.patch("/workspaces/{workspace_id}/decision")
-def execute_workspace_admin_decision(
+def decide_workspace_admin_action(
     workspace_id: str,
-    payload: WorkspaceAdminDecisionRequest,
-    _admin_email: str = Depends(require_super_admin),
+    payload: AdminWorkspaceDecisionRequest,
+    _admin: str = Depends(verify_super_admin),
     db: Session = Depends(get_db),
-):
-    """
-    Super Admin endpoint to approve/reject Managed Plan requests,
-    configure monthly token limits, or suspend/reactivate workspaces.
-    """
+) -> dict[str, Any]:
     try:
-        uuid.UUID(workspace_id)
+        wid = uuid.UUID(workspace_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid workspace UUID format.")
+        raise HTTPException(status_code=400, detail="Invalid workspace_id UUID.")
 
-    ws = db.execute(
+    row = db.execute(
         text(
             """
             SELECT
                 id,
                 name,
                 slug,
-                COALESCE(is_active, TRUE) AS is_active,
-                LOWER(COALESCE(plan_mode, 'byok')) AS plan_mode,
-                LOWER(COALESCE(plan_tier, 'byok_free')) AS plan_tier,
+                plan_mode,
+                plan_tier,
                 requested_plan_tier,
-                LOWER(COALESCE(billing_interval, 'monthly')) AS billing_interval,
-                COALESCE(managed_approved, FALSE) AS managed_approved,
-                LOWER(COALESCE(managed_request_status, 'none')) AS managed_request_status,
-                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
-                COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
+                monthly_token_limit,
+                tokens_used_this_month,
                 billing_cycle_end,
-                LOWER(COALESCE(industry, 'agency')) AS industry
+                is_active
             FROM workspaces
-            WHERE id = CAST(:wid AS UUID)
-            LIMIT 1
+            WHERE id = :wid
             """
         ),
-        {"wid": workspace_id},
+        {"wid": wid},
     ).fetchone()
 
-    if not ws:
+    if not row:
         raise HTTPException(status_code=404, detail="Workspace not found.")
 
-    updates: List[str] = []
-    params: Dict[str, Any] = {"wid": workspace_id}
-    action = payload.action
+    action = payload.action.strip().lower()
+    now_utc = datetime.now(timezone.utc)
 
-    if action == "approve_managed":
-        resolved_tier = (
-            (payload.plan_tier or ws.requested_plan_tier or "managed_starter")
-            .strip()
-            .lower()
-        )
-        if resolved_tier not in MANAGED_TIER_DEFAULT_LIMITS:
-            resolved_tier = "managed_starter"
+    if action in ("approve_managed", "assign_plan"):
+        target_tier = (
+            payload.plan_tier
+            or row.requested_plan_tier
+            or (row.plan_tier if row.plan_tier != "byok_free" else "managed_starter")
+        ).strip().lower()
 
-        resolved_limit = (
-            int(payload.monthly_token_limit)
-            if payload.monthly_token_limit is not None and payload.monthly_token_limit > 0
-            else MANAGED_TIER_DEFAULT_LIMITS[resolved_tier]
-        )
-        cycle_end = datetime.now(timezone.utc) + timedelta(days=30)
+        if target_tier == "byok_free":
+            db.execute(
+                text(
+                    """
+                    UPDATE workspaces
+                    SET plan_mode = 'byok',
+                        plan_tier = 'byok_free',
+                        managed_approved = FALSE,
+                        managed_request_status = 'none',
+                        requested_plan_tier = NULL,
+                        monthly_token_limit = 0
+                    WHERE id = :wid
+                    """
+                ),
+                {"wid": wid},
+            )
+        else:
+            default_quota = PLAN_DEFAULT_QUOTAS.get(target_tier, 2_000_000)
+            final_quota = (
+                payload.monthly_token_limit
+                if payload.monthly_token_limit is not None
+                and payload.monthly_token_limit > 0
+                else (
+                    int(row.monthly_token_limit or 0)
+                    if int(row.monthly_token_limit or 0) > 0
+                    else default_quota
+                )
+            )
+            cycle_days = payload.extra_days if payload.extra_days else 30
+            cycle_end = now_utc + timedelta(days=cycle_days)
 
-        updates.extend(
-            [
-                "plan_mode = 'managed'",
-                "plan_tier = :plan_tier",
-                "requested_plan_tier = NULL",
-                "managed_approved = TRUE",
-                "managed_request_status = 'approved'",
-                "monthly_token_limit = :monthly_token_limit",
-                "billing_cycle_end = :billing_cycle_end",
-            ]
-        )
-        params["plan_tier"] = resolved_tier
-        params["monthly_token_limit"] = resolved_limit
-        params["billing_cycle_end"] = cycle_end
+            db.execute(
+                text(
+                    """
+                    UPDATE workspaces
+                    SET plan_mode = 'managed',
+                        plan_tier = :plan_tier,
+                        managed_approved = TRUE,
+                        managed_request_status = 'approved',
+                        requested_plan_tier = NULL,
+                        monthly_token_limit = :monthly_token_limit,
+                        billing_cycle_end = :billing_cycle_end,
+                        discount_percent = COALESCE(:discount_percent, discount_percent),
+                        custom_monthly_price = COALESCE(:custom_monthly_price, custom_monthly_price),
+                        discount_note = COALESCE(:discount_note, discount_note),
+                        is_active = TRUE
+                    WHERE id = :wid
+                    """
+                ),
+                {
+                    "wid": wid,
+                    "plan_tier": target_tier,
+                    "monthly_token_limit": final_quota,
+                    "billing_cycle_end": cycle_end,
+                    "discount_percent": payload.discount_percent,
+                    "custom_monthly_price": payload.custom_monthly_price,
+                    "discount_note": payload.discount_note,
+                },
+            )
 
     elif action == "reject_managed":
-        updates.extend(
-            [
-                "plan_mode = 'byok'",
-                "plan_tier = 'byok_free'",
-                "requested_plan_tier = NULL",
-                "managed_approved = FALSE",
-                "managed_request_status = 'rejected'",
-                "monthly_token_limit = 0",
-            ]
+        db.execute(
+            text(
+                """
+                UPDATE workspaces
+                SET plan_mode = 'byok',
+                    plan_tier = 'byok_free',
+                    managed_approved = FALSE,
+                    managed_request_status = 'rejected',
+                    requested_plan_tier = NULL,
+                    monthly_token_limit = 0
+                WHERE id = :wid
+                """
+            ),
+            {"wid": wid},
         )
 
-    elif action == "suspend":
-        updates.append("is_active = FALSE")
+    elif action == "add_bonus_tokens":
+        if not payload.bonus_tokens or payload.bonus_tokens <= 0:
+            raise HTTPException(
+                status_code=400, detail="bonus_tokens must be greater than 0."
+            )
+        db.execute(
+            text(
+                """
+                UPDATE workspaces
+                SET monthly_token_limit = COALESCE(monthly_token_limit, 0) + :bonus
+                WHERE id = :wid
+                """
+            ),
+            {"wid": wid, "bonus": payload.bonus_tokens},
+        )
 
-    elif action == "reactivate":
-        updates.append("is_active = TRUE")
+    elif action == "reset_monthly_usage":
+        db.execute(
+            text(
+                """
+                UPDATE workspaces
+                SET tokens_used_this_month = 0
+                WHERE id = :wid
+                """
+            ),
+            {"wid": wid},
+        )
+
+    elif action == "extend_cycle":
+        days = payload.extra_days or 30
+        base_dt = (
+            row.billing_cycle_end
+            if row.billing_cycle_end and row.billing_cycle_end > now_utc
+            else now_utc
+        )
+        new_cycle_end = base_dt + timedelta(days=days)
+        db.execute(
+            text(
+                """
+                UPDATE workspaces
+                SET billing_cycle_end = :new_end
+                WHERE id = :wid
+                """
+            ),
+            {"wid": wid, "new_end": new_cycle_end},
+        )
+
+    elif action == "set_discount":
+        db.execute(
+            text(
+                """
+                UPDATE workspaces
+                SET discount_percent = COALESCE(:discount_percent, 0),
+                    custom_monthly_price = :custom_monthly_price,
+                    discount_note = :discount_note
+                WHERE id = :wid
+                """
+            ),
+            {
+                "wid": wid,
+                "discount_percent": payload.discount_percent or 0,
+                "custom_monthly_price": payload.custom_monthly_price,
+                "discount_note": payload.discount_note,
+            },
+        )
 
     elif action == "update_quota":
         if payload.monthly_token_limit is None:
             raise HTTPException(
                 status_code=400,
-                detail="monthly_token_limit is required when action is 'update_quota'.",
+                detail="monthly_token_limit is required for update_quota.",
             )
-        updates.append("monthly_token_limit = :monthly_token_limit")
-        params["monthly_token_limit"] = int(payload.monthly_token_limit)
+        db.execute(
+            text(
+                """
+                UPDATE workspaces
+                SET monthly_token_limit = :monthly_token_limit
+                WHERE id = :wid
+                """
+            ),
+            {"wid": wid, "monthly_token_limit": payload.monthly_token_limit},
+        )
+
+    elif action == "suspend":
+        db.execute(
+            text("UPDATE workspaces SET is_active = FALSE WHERE id = :wid"),
+            {"wid": wid},
+        )
+
+    elif action == "reactivate":
+        db.execute(
+            text("UPDATE workspaces SET is_active = TRUE WHERE id = :wid"),
+            {"wid": wid},
+        )
 
     else:
-        # Support direct field updates when action is omitted
-        if payload.monthly_token_limit is not None:
-            updates.append("monthly_token_limit = :monthly_token_limit")
-            params["monthly_token_limit"] = int(payload.monthly_token_limit)
-        if payload.is_active is not None:
-            updates.append("is_active = :is_active")
-            params["is_active"] = bool(payload.is_active)
-        if payload.plan_tier is not None:
-            clean_tier = payload.plan_tier.strip().lower()
-            if clean_tier in MANAGED_TIER_DEFAULT_LIMITS:
-                updates.append("plan_tier = :plan_tier")
-                params["plan_tier"] = clean_tier
-
-    if not updates:
         raise HTTPException(
             status_code=400,
-            detail="No valid administrative decision or field update provided.",
+            detail=f"Unsupported administrative action '{payload.action}'.",
         )
+
+    db.commit()
 
     updated = db.execute(
         text(
-            f"""
-            UPDATE workspaces
-            SET {', '.join(updates)}
-            WHERE id = CAST(:wid AS UUID)
-            RETURNING
+            """
+            SELECT
                 id,
                 name,
                 slug,
-                COALESCE(is_active, TRUE) AS is_active,
-                LOWER(COALESCE(plan_mode, 'byok')) AS plan_mode,
-                LOWER(COALESCE(plan_tier, 'byok_free')) AS plan_tier,
-                requested_plan_tier,
-                LOWER(COALESCE(billing_interval, 'monthly')) AS billing_interval,
-                COALESCE(managed_approved, FALSE) AS managed_approved,
-                LOWER(COALESCE(managed_request_status, 'none')) AS managed_request_status,
-                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
-                COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
-                billing_cycle_end,
-                LOWER(COALESCE(industry, 'agency')) AS industry
+                is_active,
+                plan_mode,
+                plan_tier,
+                managed_approved,
+                managed_request_status,
+                monthly_token_limit,
+                tokens_used_this_month,
+                discount_percent,
+                custom_monthly_price,
+                discount_note,
+                billing_cycle_end
+            FROM workspaces
+            WHERE id = :wid
             """
         ),
-        params,
+        {"wid": wid},
     ).fetchone()
-    db.commit()
-
-    limit = int(updated.monthly_token_limit or 0)
-    used = int(updated.tokens_used_this_month or 0)
-    usage_pct = round(min(100.0, (used / limit) * 100), 1) if limit > 0 else 0.0
 
     return {
         "status": "updated",
-        "action": action or "direct_update",
+        "action": action,
         "workspace": {
             "id": str(updated.id),
-            "workspace_id": str(updated.id),
             "name": updated.name,
             "slug": updated.slug,
             "is_active": bool(updated.is_active),
             "plan_mode": updated.plan_mode,
             "plan_tier": updated.plan_tier,
-            "requested_plan_tier": updated.requested_plan_tier,
-            "billing_interval": updated.billing_interval,
             "managed_approved": bool(updated.managed_approved),
             "managed_request_status": updated.managed_request_status,
-            "monthly_token_limit": limit,
-            "tokens_used_this_month": used,
-            "usage_percent": usage_pct,
-            "billing_cycle_end": (
-                updated.billing_cycle_end.isoformat()
-                if updated.billing_cycle_end
-                else None
-            ),
-            "industry": updated.industry,
+            "monthly_token_limit": int(updated.monthly_token_limit or 0),
+            "tokens_used_this_month": int(updated.tokens_used_this_month or 0),
+            "discount_percent": int(updated.discount_percent or 0),
+            "custom_monthly_price": float(updated.custom_monthly_price)
+            if updated.custom_monthly_price is not None
+            else None,
+            "discount_note": updated.discount_note,
+            "billing_cycle_end": updated.billing_cycle_end.isoformat()
+            if updated.billing_cycle_end
+            else None,
         },
     }
+
+
+# ==============================================================================
+# PROMO CODES & SPECIAL OFFERS MANAGEMENT
+# ==============================================================================
+
+
+@router.get("/promo-codes")
+def list_promo_codes(
+    _admin: str = Depends(verify_super_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                id,
+                code,
+                discount_percent,
+                bonus_tokens,
+                extra_workspaces,
+                max_uses,
+                times_used,
+                expires_at,
+                is_active,
+                created_at
+            FROM promo_codes
+            ORDER BY created_at DESC
+            """
+        )
+    ).fetchall()
+
+    return {
+        "promo_codes": [
+            {
+                "id": str(r.id),
+                "code": r.code,
+                "discount_percent": int(r.discount_percent or 0),
+                "bonus_tokens": int(r.bonus_tokens or 0),
+                "extra_workspaces": int(r.extra_workspaces or 0),
+                "max_uses": int(r.max_uses or 0),
+                "times_used": int(r.times_used or 0),
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                "is_active": bool(r.is_active),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/promo-codes")
+def create_promo_code(
+    payload: PromoCodeCreateRequest,
+    _admin: str = Depends(verify_super_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    clean_code = payload.code.strip().upper().replace(" ", "")
+    existing = db.execute(
+        text("SELECT id FROM promo_codes WHERE UPPER(code) = :code"),
+        {"code": clean_code},
+    ).fetchone()
+    if existing:
+        raise HTTPException(
+            status_code=409, detail=f"Promo code '{clean_code}' already exists."
+        )
+
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(days=payload.valid_days)
+        if payload.valid_days
+        else None
+    )
+
+    inserted = db.execute(
+        text(
+            """
+            INSERT INTO promo_codes (
+                code,
+                discount_percent,
+                bonus_tokens,
+                extra_workspaces,
+                max_uses,
+                expires_at,
+                is_active
+            )
+            VALUES (
+                :code,
+                :discount_percent,
+                :bonus_tokens,
+                :extra_workspaces,
+                :max_uses,
+                :expires_at,
+                TRUE
+            )
+            RETURNING id, code
+            """
+        ),
+        {
+            "code": clean_code,
+            "discount_percent": payload.discount_percent,
+            "bonus_tokens": payload.bonus_tokens,
+            "extra_workspaces": payload.extra_workspaces,
+            "max_uses": payload.max_uses,
+            "expires_at": expires_at,
+        },
+    ).fetchone()
+    db.commit()
+
+    return {"status": "created", "id": str(inserted.id), "code": inserted.code}
+
+
+@router.patch("/promo-codes/{promo_id}/toggle")
+def toggle_promo_code(
+    promo_id: str,
+    _admin: str = Depends(verify_super_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        pid = uuid.UUID(promo_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid promo_id UUID.")
+
+    db.execute(
+        text(
+            """
+            UPDATE promo_codes
+            SET is_active = NOT COALESCE(is_active, TRUE)
+            WHERE id = :pid
+            """
+        ),
+        {"pid": pid},
+    )
+    db.commit()
+    return {"status": "toggled", "id": promo_id}
+
+
+@router.delete("/promo-codes/{promo_id}")
+def delete_promo_code(
+    promo_id: str,
+    _admin: str = Depends(verify_super_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        pid = uuid.UUID(promo_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid promo_id UUID.")
+
+    db.execute(text("DELETE FROM promo_codes WHERE id = :pid"), {"pid": pid})
+    db.commit()
+    return {"status": "deleted", "id": promo_id}

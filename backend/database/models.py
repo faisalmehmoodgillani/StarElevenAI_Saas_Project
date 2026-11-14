@@ -163,3 +163,35 @@ class AgentConfig(Base):
 
 # CREATE INDEX IF NOT EXISTS idx_workspaces_industry ON workspaces (industry);
 # CREATE INDEX IF NOT EXISTS idx_workspaces_plan_tier ON workspaces (plan_tier);
+
+
+
+# ALTER TABLE agent_configs
+# ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+# ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+
+# -- 1. Per-user workspace allowance (default 1 workspace; Super Admin can increase per user)
+# ALTER TABLE users
+# ADD COLUMN IF NOT EXISTS max_workspaces_allowed INTEGER NOT NULL DEFAULT 1;
+
+# -- 2. Custom discount, negotiated pricing & applied promo tracking on workspaces
+# ALTER TABLE workspaces
+# ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0,
+# ADD COLUMN IF NOT EXISTS custom_monthly_price NUMERIC(10, 2) DEFAULT NULL,
+# ADD COLUMN IF NOT EXISTS discount_note TEXT DEFAULT NULL,
+# ADD COLUMN IF NOT EXISTS applied_promo_code VARCHAR(50) DEFAULT NULL;
+
+# -- 3. Super Admin Promo / Discount Codes table
+# CREATE TABLE IF NOT EXISTS promo_codes (
+#     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     code VARCHAR(50) UNIQUE NOT NULL,
+#     discount_percent INTEGER NOT NULL DEFAULT 10,
+#     bonus_tokens BIGINT NOT NULL DEFAULT 0,
+#     extra_workspaces INTEGER NOT NULL DEFAULT 0,
+#     max_uses INTEGER NOT NULL DEFAULT 100,
+#     times_used INTEGER NOT NULL DEFAULT 0,
+#     expires_at TIMESTAMPTZ DEFAULT NULL,
+#     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+#     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+# );

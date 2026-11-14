@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import smtplib
 import logging
 from datetime import datetime, timezone, timedelta
@@ -7,7 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -98,7 +99,9 @@ def _send_managed_upgrade_alert(
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "465"))
     smtp_user = os.getenv("SMTP_USER", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_password = (
+        os.getenv("SMTP_APP_PASSWORD") or os.getenv("SMTP_PASSWORD") or ""
+    ).strip()
     raw_admins = os.getenv("SUPER_ADMIN_EMAILS", "").strip()
 
     recipients = [e.strip() for e in raw_admins.split(",") if e.strip()]
@@ -114,7 +117,9 @@ def _send_managed_upgrade_alert(
     )
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[StarEleven AI] Managed Plan Upgrade Request: {workspace_name} ({plan_info['label']})"
+    msg["Subject"] = (
+        f"[StarEleven AI] Managed Plan Upgrade Request: {workspace_name} ({plan_info['label']})"
+    )
     msg["From"] = smtp_user
     msg["To"] = ", ".join(recipients)
 
@@ -147,17 +152,19 @@ def _send_managed_upgrade_alert(
         return False
 
 
-def _serialize_workspace(row: Any) -> Dict[str, Any]:
+def _serialize_workspace(row: Any, fallback_owner_email: Optional[str] = None) -> Dict[str, Any]:
     limit = int(row.monthly_token_limit or 0)
     used = int(row.tokens_used_this_month or 0)
     remaining = max(0, limit - used) if limit > 0 else None
     usage_pct = round(min(100.0, (used / limit) * 100), 1) if limit > 0 else 0.0
+    resolved_owner = getattr(row, "owner_email", None) or fallback_owner_email
 
     return {
         "id": str(row.id),
         "workspace_id": str(row.id),
         "name": row.name,
         "slug": row.slug,
+        "owner_email": resolved_owner,
         "is_active": bool(row.is_active),
         "plan_mode": row.plan_mode or "byok",
         "plan_tier": row.plan_tier or "byok_free",
@@ -221,21 +228,38 @@ async def list_workspaces(db: Session = Depends(get_db)):
         text(
             """
             SELECT
-                id, name, slug, is_active,
-                COALESCE(plan_mode, 'byok') AS plan_mode,
-                COALESCE(plan_tier, 'byok_free') AS plan_tier,
-                requested_plan_tier,
-                COALESCE(billing_interval, 'monthly') AS billing_interval,
-                COALESCE(managed_approved, FALSE) AS managed_approved,
-                COALESCE(managed_request_status, 'none') AS managed_request_status,
-                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
-                COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
-                billing_cycle_end,
-                COALESCE(industry, 'agency') AS industry,
-                COALESCE(industry_config, '{}'::jsonb) AS industry_config,
-                created_at
-            FROM workspaces
-            ORDER BY created_at ASC
+                w.id, w.name, w.slug, w.is_active,
+                COALESCE(w.plan_mode, 'byok') AS plan_mode,
+                COALESCE(w.plan_tier, 'byok_free') AS plan_tier,
+                w.requested_plan_tier,
+                COALESCE(w.billing_interval, 'monthly') AS billing_interval,
+                COALESCE(w.managed_approved, FALSE) AS managed_approved,
+                COALESCE(w.managed_request_status, 'none') AS managed_request_status,
+                COALESCE(w.monthly_token_limit, 0) AS monthly_token_limit,
+                COALESCE(w.tokens_used_this_month, 0) AS tokens_used_this_month,
+                w.billing_cycle_end,
+                COALESCE(w.industry, 'agency') AS industry,
+                COALESCE(w.industry_config, '{}'::jsonb) AS industry_config,
+                w.created_at,
+                COALESCE(
+                    (
+                        SELECT wm.user_email
+                        FROM workspace_members wm
+                        WHERE wm.workspace_id = w.id
+                        ORDER BY CASE WHEN LOWER(COALESCE(wm.role, '')) = 'owner' THEN 0 ELSE 1 END,
+                                 wm.created_at ASC NULLS LAST
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT u.email
+                        FROM users u
+                        WHERE u.workspace_id = w.id
+                        ORDER BY u.created_at ASC NULLS LAST
+                        LIMIT 1
+                    )
+                ) AS owner_email
+            FROM workspaces w
+            ORDER BY w.created_at ASC
             """
         )
     ).fetchall()
@@ -276,7 +300,7 @@ async def create_workspace(
         requested_tier = "managed_starter"
 
     super_admin = _is_super_admin(payload.owner_email)
-    
+
     owned_count = 0
     if payload.owner_email:
         owner_email_clean = payload.owner_email.strip().lower()
@@ -374,10 +398,10 @@ async def create_workspace(
     ).fetchone()
 
     workspace_id = str(row.id)
+    normalized_owner = payload.owner_email.strip().lower() if payload.owner_email else None
 
     # Link owner in workspace_members if owner_email is supplied
-    if payload.owner_email:
-        owner_email = payload.owner_email.strip().lower()
+    if normalized_owner:
         db.execute(
             text(
                 """
@@ -386,21 +410,21 @@ async def create_workspace(
                 ON CONFLICT (workspace_id, user_email) DO NOTHING
                 """
             ),
-            {"wid": workspace_id, "email": owner_email},
+            {"wid": workspace_id, "email": normalized_owner},
         )
 
     db.commit()
 
-    if wants_managed and not super_admin and payload.owner_email:
+    if wants_managed and not super_admin and normalized_owner:
         _send_managed_upgrade_alert(
             workspace_id=workspace_id,
             workspace_name=clean_name,
-            requester_email=payload.owner_email.strip().lower(),
+            requester_email=normalized_owner,
             requested_tier=requested_tier,
             billing_interval=interval,
         )
 
-    return _serialize_workspace(row)
+    return _serialize_workspace(row, fallback_owner_email=normalized_owner)
 
 
 @router.get("/{workspace_id}/billing")
@@ -409,21 +433,36 @@ async def get_workspace_billing(workspace_id: str, db: Session = Depends(get_db)
         text(
             """
             SELECT
-                id, name, slug, is_active,
-                COALESCE(plan_mode, 'byok') AS plan_mode,
-                COALESCE(plan_tier, 'byok_free') AS plan_tier,
-                requested_plan_tier,
-                COALESCE(billing_interval, 'monthly') AS billing_interval,
-                COALESCE(managed_approved, FALSE) AS managed_approved,
-                COALESCE(managed_request_status, 'none') AS managed_request_status,
-                COALESCE(monthly_token_limit, 0) AS monthly_token_limit,
-                COALESCE(tokens_used_this_month, 0) AS tokens_used_this_month,
-                billing_cycle_end,
-                COALESCE(industry, 'agency') AS industry,
-                COALESCE(industry_config, '{}'::jsonb) AS industry_config,
-                created_at
-            FROM workspaces
-            WHERE id = CAST(:wid AS UUID)
+                w.id, w.name, w.slug, w.is_active,
+                COALESCE(w.plan_mode, 'byok') AS plan_mode,
+                COALESCE(w.plan_tier, 'byok_free') AS plan_tier,
+                w.requested_plan_tier,
+                COALESCE(w.billing_interval, 'monthly') AS billing_interval,
+                COALESCE(w.managed_approved, FALSE) AS managed_approved,
+                COALESCE(w.managed_request_status, 'none') AS managed_request_status,
+                COALESCE(w.monthly_token_limit, 0) AS monthly_token_limit,
+                COALESCE(w.tokens_used_this_month, 0) AS tokens_used_this_month,
+                w.billing_cycle_end,
+                COALESCE(w.industry, 'agency') AS industry,
+                COALESCE(w.industry_config, '{}'::jsonb) AS industry_config,
+                w.created_at,
+                COALESCE(
+                    (
+                        SELECT wm.user_email
+                        FROM workspace_members wm
+                        WHERE wm.workspace_id = w.id
+                        ORDER BY CASE WHEN LOWER(COALESCE(wm.role, '')) = 'owner' THEN 0 ELSE 1 END
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT u.email
+                        FROM users u
+                        WHERE u.workspace_id = w.id
+                        LIMIT 1
+                    )
+                ) AS owner_email
+            FROM workspaces w
+            WHERE w.id = CAST(:wid AS UUID)
             LIMIT 1
             """
         ),
@@ -674,8 +713,6 @@ async def update_workspace(
     payload: WorkspaceUpdateRequest,
     db: Session = Depends(get_db),
 ):
-    import json
-
     existing = db.execute(
         text(
             """
