@@ -1,6 +1,6 @@
 import os
 import smtplib
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -11,9 +11,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.database.session import get_db
+from backend.database.connection import get_db
 
 router = APIRouter(prefix="/bookings", tags=["Call Bookings"])
+
+# Pakistan Standard Time (PKT = UTC+5)
+PKT_TZ = timezone(timedelta(hours=5))
 
 # 4 Fixed Professional Executive Time Slots
 PROFESSIONAL_SLOTS = [
@@ -21,25 +24,33 @@ PROFESSIONAL_SLOTS = [
         "id": "11:00 AM",
         "label": "11:00 AM",
         "tag": "Morning Executive",
+        "hour": 11,
+        "minute": 0,
     },
     {
         "id": "02:30 PM",
         "label": "02:30 PM",
         "tag": "Afternoon Strategy",
+        "hour": 14,
+        "minute": 30,
     },
     {
         "id": "05:00 PM",
         "label": "05:00 PM",
         "tag": "Evening Operations",
+        "hour": 17,
+        "minute": 0,
     },
     {
         "id": "08:30 PM",
         "label": "08:30 PM",
         "tag": "Global / Remote",
+        "hour": 20,
+        "minute": 30,
     },
 ]
 
-VALID_SLOT_IDS = {s["id"] for s in PROFESSIONAL_SLOTS}
+SLOT_LOOKUP = {s["id"]: s for s in PROFESSIONAL_SLOTS}
 
 
 class CreateBookingRequest(BaseModel):
@@ -50,6 +61,20 @@ class CreateBookingRequest(BaseModel):
     booking_date: date
     time_slot: str
     notes: Optional[str] = None
+
+
+def _is_slot_passed(target_date: date, slot_info: dict, now_pkt: datetime) -> bool:
+    today_pkt = now_pkt.date()
+    if target_date < today_pkt:
+        return True
+    if target_date > today_pkt:
+        return False
+    slot_dt = datetime.combine(
+        target_date,
+        time(hour=slot_info["hour"], minute=slot_info["minute"]),
+        tzinfo=PKT_TZ,
+    )
+    return now_pkt >= slot_dt
 
 
 def _send_smtp_email(to_email: str, subject: str, html_body: str) -> bool:
@@ -84,14 +109,24 @@ def _send_smtp_email(to_email: str, subject: str, html_body: str) -> bool:
 
 
 def _notify_admin_and_client(payload: CreateBookingRequest) -> None:
-    admin_raw = os.getenv("SUPER_ADMIN_EMAILS") or os.getenv("SMTP_USER") or os.getenv("SMTP_EMAIL") or ""
+    admin_raw = (
+        os.getenv("SUPER_ADMIN_EMAILS")
+        or os.getenv("SMTP_USER")
+        or os.getenv("SMTP_EMAIL")
+        or ""
+    )
     admin_emails = [e.strip() for e in admin_raw.split(",") if e.strip()]
 
     formatted_date = payload.booking_date.strftime("%A, %d %B %Y")
-    company_display = payload.company_name.strip() if payload.company_name else "Not specified"
-    notes_display = payload.notes.strip() if payload.notes else "No additional notes provided."
+    company_display = (
+        payload.company_name.strip() if payload.company_name else "Not specified"
+    )
+    notes_display = (
+        payload.notes.strip()
+        if payload.notes
+        else "No additional notes provided."
+    )
 
-    # 1. Admin Alert Email
     admin_html = f"""
     <div style="font-family: Arial, sans-serif; background-color: #09090B; color: #F4F4F5; padding: 28px; border-radius: 12px; border: 1px solid #27272A; max-width: 600px;">
       <div style="display: inline-block; background-color: rgba(132, 204, 22, 0.15); color: #A3E635; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: bold; letter-spacing: 0.5px;">
@@ -137,7 +172,6 @@ def _notify_admin_and_client(payload: CreateBookingRequest) -> None:
             admin_html,
         )
 
-    # 2. Client Confirmation Email
     client_html = f"""
     <div style="font-family: Arial, sans-serif; background-color: #09090B; color: #F4F4F5; padding: 28px; border-radius: 12px; border: 1px solid #27272A; max-width: 600px;">
       <div style="display: inline-block; background-color: rgba(132, 204, 22, 0.15); color: #A3E635; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: bold;">
@@ -169,6 +203,8 @@ def get_available_slots(
     booking_date: date = Query(..., description="Date in YYYY-MM-DD format"),
     db: Session = Depends(get_db),
 ):
+    now_pkt = datetime.now(PKT_TZ)
+
     rows = db.execute(
         text(
             """
@@ -183,15 +219,19 @@ def get_available_slots(
 
     booked_set = {row.time_slot for row in rows}
 
-    slots_response = [
-        {
-            "id": slot["id"],
-            "label": slot["label"],
-            "tag": slot["tag"],
-            "is_booked": slot["id"] in booked_set,
-        }
-        for slot in PROFESSIONAL_SLOTS
-    ]
+    slots_response = []
+    for slot in PROFESSIONAL_SLOTS:
+        is_booked = slot["id"] in booked_set
+        is_passed = _is_slot_passed(booking_date, slot, now_pkt)
+        slots_response.append(
+            {
+                "id": slot["id"],
+                "label": slot["label"],
+                "tag": slot["tag"],
+                "is_booked": is_booked,
+                "is_passed": is_passed,
+            }
+        )
 
     return {
         "booking_date": str(booking_date),
@@ -205,16 +245,25 @@ def create_booking(
     payload: CreateBookingRequest,
     db: Session = Depends(get_db),
 ):
-    if payload.booking_date < date.today():
+    now_pkt = datetime.now(PKT_TZ)
+
+    if payload.booking_date < now_pkt.date():
         raise HTTPException(
             status_code=400,
             detail="Past dates cannot be booked. Please select today or an upcoming date.",
         )
 
-    if payload.time_slot not in VALID_SLOT_IDS:
+    slot_info = SLOT_LOOKUP.get(payload.time_slot)
+    if not slot_info:
         raise HTTPException(
             status_code=400,
             detail="Invalid time slot selected. Please choose one of the 4 official slots.",
+        )
+
+    if _is_slot_passed(payload.booking_date, slot_info, now_pkt):
+        raise HTTPException(
+            status_code=400,
+            detail=f"The {payload.time_slot} slot has already passed for today. Please choose an upcoming time slot or another date.",
         )
 
     if not payload.full_name.strip():

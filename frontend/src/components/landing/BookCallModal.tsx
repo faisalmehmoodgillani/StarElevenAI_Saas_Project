@@ -19,12 +19,49 @@ interface TimeSlotItem {
   label: string;
   tag: string;
   is_booked: boolean;
+  is_passed?: boolean;
 }
 
 interface BookCallModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultIndustry?: string;
+}
+
+const SLOT_DEFINITIONS = [
+  { id: "11:00 AM", label: "11:00 AM", tag: "Morning Executive", hour: 11, minute: 0 },
+  { id: "02:30 PM", label: "02:30 PM", tag: "Afternoon Strategy", hour: 14, minute: 30 },
+  { id: "05:00 PM", label: "05:00 PM", tag: "Evening Operations", hour: 17, minute: 0 },
+  { id: "08:30 PM", label: "08:30 PM", tag: "Global / Remote", hour: 20, minute: 30 },
+];
+
+function getPktNowParts() {
+  const nowUtcMs = Date.now();
+  const pktDate = new Date(nowUtcMs + 5 * 60 * 60 * 1000);
+  const yyyy = pktDate.getUTCFullYear();
+  const mm = String(pktDate.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(pktDate.getUTCDate()).padStart(2, "0");
+  return {
+    todayStr: `${yyyy}-${mm}-${dd}`,
+    minutesNow: pktDate.getUTCHours() * 60 + pktDate.getUTCMinutes(),
+  };
+}
+
+function buildClientSlots(targetDate: string): TimeSlotItem[] {
+  const { todayStr, minutesNow } = getPktNowParts();
+  return SLOT_DEFINITIONS.map((s) => {
+    const slotMinutes = s.hour * 60 + s.minute;
+    const isPassed =
+      targetDate < todayStr ||
+      (targetDate === todayStr && minutesNow >= slotMinutes);
+    return {
+      id: s.id,
+      label: s.label,
+      tag: s.tag,
+      is_booked: false,
+      is_passed: isPassed,
+    };
+  });
 }
 
 function mapIndustryToOption(raw?: string): string {
@@ -55,28 +92,17 @@ const RAW_API_URL = (
   .replace(/\/+$/, "")
   .replace(/\/api\/v1$/, "");
 
-const FALLBACK_SLOTS: TimeSlotItem[] = [
-  { id: "11:00 AM", label: "11:00 AM", tag: "Morning Executive", is_booked: false },
-  { id: "02:30 PM", label: "02:30 PM", tag: "Afternoon Strategy", is_booked: false },
-  { id: "05:00 PM", label: "05:00 PM", tag: "Evening Operations", is_booked: false },
-  { id: "08:30 PM", label: "08:30 PM", tag: "Global / Remote", is_booked: false },
-];
-
 export function BookCallModal({
   isOpen,
   onClose,
   defaultIndustry,
 }: BookCallModalProps) {
-  const todayStr = useMemo(() => {
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }, []);
+  const todayStr = useMemo(() => getPktNowParts().todayStr, []);
 
   const [bookingDate, setBookingDate] = useState<string>(todayStr);
-  const [slots, setSlots] = useState<TimeSlotItem[]>(FALLBACK_SLOTS);
+  const [slots, setSlots] = useState<TimeSlotItem[]>(() =>
+    buildClientSlots(todayStr)
+  );
   const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
   const [selectedSlot, setSelectedSlot] = useState<string>("");
 
@@ -95,26 +121,54 @@ export function BookCallModal({
     slot: string;
   } | null>(null);
 
+  const handleDateChange = (rawDate: string) => {
+    if (!rawDate || rawDate < todayStr) {
+      setBookingDate(todayStr);
+      return;
+    }
+    setBookingDate(rawDate);
+  };
+
   const fetchSlotsForDate = async (targetDate: string) => {
+    const safeDate = targetDate < todayStr ? todayStr : targetDate;
+    const localDefaults = buildClientSlots(safeDate);
+    setSlots(localDefaults);
     setLoadingSlots(true);
     setErrorMsg("");
+
     try {
       const res = await fetch(
-        `${RAW_API_URL}/api/v1/bookings/slots?booking_date=${targetDate}`
+        `${RAW_API_URL}/api/v1/bookings/slots?booking_date=${safeDate}`
       );
       if (!res.ok) throw new Error("Unable to fetch live slots.");
       const data = await res.json();
-      const fetchedSlots: TimeSlotItem[] = data.slots || FALLBACK_SLOTS;
-      setSlots(fetchedSlots);
+      const apiSlots: TimeSlotItem[] = data.slots || localDefaults;
 
-      const stillFree = fetchedSlots.some(
-        (s) => s.id === selectedSlot && !s.is_booked
+      const mergedSlots = localDefaults.map((localSlot) => {
+        const remote = apiSlots.find((r) => r.id === localSlot.id);
+        return {
+          ...localSlot,
+          is_booked: Boolean(remote?.is_booked),
+          is_passed: Boolean(remote?.is_passed || localSlot.is_passed),
+        };
+      });
+
+      setSlots(mergedSlots);
+
+      const stillFree = mergedSlots.some(
+        (s) => s.id === selectedSlot && !s.is_booked && !s.is_passed
       );
       if (!stillFree) {
         setSelectedSlot("");
       }
     } catch {
-      setSlots(FALLBACK_SLOTS);
+      setSlots(localDefaults);
+      const stillFree = localDefaults.some(
+        (s) => s.id === selectedSlot && !s.is_booked && !s.is_passed
+      );
+      if (!stillFree) {
+        setSelectedSlot("");
+      }
     } finally {
       setLoadingSlots(false);
     }
@@ -161,7 +215,7 @@ export function BookCallModal({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        if (res.status === 409) {
+        if (res.status === 409 || res.status === 400) {
           await fetchSlotsForDate(bookingDate);
         }
         throw new Error(data.detail || "Could not complete your booking.");
@@ -196,7 +250,7 @@ export function BookCallModal({
               Book a Strategy &amp; Demo Session
             </h3>
             <p className="mt-1 text-xs text-zinc-400">
-              Select an open time slot below. Booked slots lock automatically.
+              Select an open time slot below. Booked or passed slots lock automatically.
             </p>
           </div>
           <button
@@ -250,7 +304,7 @@ export function BookCallModal({
                 required
                 min={todayStr}
                 value={bookingDate}
-                onChange={(e) => setBookingDate(e.target.value)}
+                onChange={(e) => handleDateChange(e.target.value)}
                 className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-sm text-white focus:border-[#84CC16] focus:outline-none"
               />
             </div>
@@ -272,16 +326,17 @@ export function BookCallModal({
 
               <div className="mt-2 grid grid-cols-2 gap-2.5">
                 {slots.map((slot) => {
-                  const isSelected = selectedSlot === slot.id && !slot.is_booked;
+                  const isDisabled = Boolean(slot.is_booked || slot.is_passed);
+                  const isSelected = selectedSlot === slot.id && !isDisabled;
                   return (
                     <button
                       key={slot.id}
                       type="button"
-                      disabled={slot.is_booked || loadingSlots}
+                      disabled={isDisabled || loadingSlots}
                       onClick={() => setSelectedSlot(slot.id)}
                       className={`flex items-center justify-between rounded-xl border px-3.5 py-3 text-left transition ${
-                        slot.is_booked
-                          ? "cursor-not-allowed border-zinc-800/70 bg-[#09090B]/50 opacity-55"
+                        isDisabled
+                          ? "cursor-not-allowed border-zinc-800/70 bg-[#09090B]/50 opacity-50"
                           : isSelected
                           ? "border-[#84CC16] bg-[#84CC16]/15 text-white"
                           : "border-zinc-800 bg-[#09090B] text-zinc-200 hover:border-zinc-700"
@@ -290,7 +345,7 @@ export function BookCallModal({
                       <div>
                         <div
                           className={`font-mono text-sm font-bold ${
-                            slot.is_booked
+                            isDisabled
                               ? "line-through text-zinc-500"
                               : isSelected
                               ? "text-[#A3E635]"
@@ -308,6 +363,10 @@ export function BookCallModal({
                         <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-rose-400">
                           <Lock className="h-2.5 w-2.5" />
                           Booked
+                        </span>
+                      ) : slot.is_passed ? (
+                        <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-zinc-400">
+                          Passed
                         </span>
                       ) : (
                         <span
