@@ -96,6 +96,7 @@ class AgentConfig(Base):
 
     workspace = relationship("Workspace", back_populates="agent_configs")
 
+
 class WorkspaceIntegration(Base):
     __tablename__ = "workspace_integrations"
     __table_args__ = (
@@ -157,6 +158,23 @@ class ChatThreadScope(Base):
     pinned_agent_ids = Column(JSONB, nullable=False, default=list)
     pinned_tool_ids = Column(JSONB, nullable=False, default=list)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SystemErrorLog(Base):
+    __tablename__ = "system_error_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    error_code = Column(String(100), nullable=False, index=True)
+    error_message = Column(Text, nullable=False)
+    is_client_fault = Column(Boolean, nullable=False, default=False, index=True)
+    severity = Column(String(20), nullable=False, default="WARNING", index=True)  # WARNING | CRITICAL
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 
@@ -329,3 +347,20 @@ class ChatThreadScope(Base):
 # );
 
 # CREATE INDEX IF NOT EXISTS idx_chat_thread_scopes_lookup ON chat_thread_scopes (workspace_id, thread_id);
+
+
+# CREATE TABLE IF NOT EXISTS system_error_logs (
+#     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     workspace_id UUID NULL REFERENCES workspaces(id) ON DELETE SET NULL,
+#     error_code VARCHAR(100) NOT NULL,
+#     error_message TEXT NOT NULL,
+#     is_client_fault BOOLEAN NOT NULL DEFAULT FALSE,
+#     severity VARCHAR(20) NOT NULL DEFAULT 'WARNING',
+#     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+# );
+
+# CREATE INDEX IF NOT EXISTS idx_system_error_logs_workspace_id ON system_error_logs(workspace_id);
+# CREATE INDEX IF NOT EXISTS idx_system_error_logs_error_code ON system_error_logs(error_code);
+# CREATE INDEX IF NOT EXISTS idx_system_error_logs_is_client_fault ON system_error_logs(is_client_fault);
+# CREATE INDEX IF NOT EXISTS idx_system_error_logs_severity ON system_error_logs(severity);
+# CREATE INDEX IF NOT EXISTS idx_system_error_logs_created_at ON system_error_logs(created_at DESC);

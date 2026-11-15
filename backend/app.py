@@ -2,6 +2,7 @@ import os
 import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from backend.middleware.error_logger import ErrorObservabilityMiddleware
 
 # Ensure project root is on sys.path for reliable module resolution
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -19,6 +20,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
+    ErrorObservabilityMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
