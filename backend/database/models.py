@@ -195,3 +195,20 @@ class AgentConfig(Base):
 #     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 #     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 # );
+
+
+# CREATE TABLE IF NOT EXISTS call_bookings (
+#     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     full_name VARCHAR(150) NOT NULL,
+#     email VARCHAR(200) NOT NULL,
+#     company_name VARCHAR(200) DEFAULT NULL,
+#     industry VARCHAR(100) DEFAULT 'agency',
+#     booking_date DATE NOT NULL,
+#     time_slot VARCHAR(30) NOT NULL,
+#     notes TEXT DEFAULT NULL,
+#     status VARCHAR(30) NOT NULL DEFAULT 'confirmed',
+#     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     CONSTRAINT unique_date_time_slot UNIQUE (booking_date, time_slot)
+# );
+
+# CREATE INDEX IF NOT EXISTS idx_call_bookings_date ON call_bookings (booking_date);

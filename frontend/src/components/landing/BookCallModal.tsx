@@ -1,15 +1,25 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   CheckCircle2,
   Clock,
+  Lock,
   Mail,
-  PhoneCall,
-  Sparkles,
+  Building2,
+  User,
   X,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
+
+interface TimeSlotItem {
+  id: string;
+  label: string;
+  tag: string;
+  is_booked: boolean;
+}
 
 interface BookCallModalProps {
   isOpen: boolean;
@@ -17,293 +27,408 @@ interface BookCallModalProps {
   defaultIndustry?: string;
 }
 
-const CALL_TYPES = [
-  {
-    id: "discovery",
-    title: "15-Min Quick Discovery Call",
-    subtitle: "See how StarEleven fits your business & team",
-  },
-  {
-    id: "agency_demo",
-    title: "30-Min Full Platform & Agency Demo",
-    subtitle: "Live walkthrough of workspaces, AI agents & pricing",
-  },
-];
+function mapIndustryToOption(raw?: string): string {
+  if (!raw) return "agency";
+  const val = raw.toLowerCase();
+  if (val.includes("real")) return "real_estate";
+  if (val.includes("comm") || val.includes("d2c") || val.includes("retail")) {
+    return "ecommerce";
+  }
+  if (val.includes("health") || val.includes("clinic") || val.includes("med")) {
+    return "healthcare";
+  }
+  if (val.includes("edu") || val.includes("academy") || val.includes("school")) {
+    return "education";
+  }
+  if (val.includes("saas") || val.includes("tech") || val.includes("software")) {
+    return "saas";
+  }
+  if (val.includes("agency") || val.includes("consult")) return "agency";
+  return "other";
+}
 
-const TIME_SLOTS = [
-  "11:00 AM (PKT / GMT+5)",
-  "02:00 PM (PKT / GMT+5)",
-  "05:00 PM (PKT / GMT+5)",
-  "08:00 PM (PKT / GMT+5)",
+const RAW_API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://127.0.0.1:8000"
+)
+  .replace(/\/+$/, "")
+  .replace(/\/api\/v1$/, "");
+
+const FALLBACK_SLOTS: TimeSlotItem[] = [
+  { id: "11:00 AM", label: "11:00 AM", tag: "Morning Executive", is_booked: false },
+  { id: "02:30 PM", label: "02:30 PM", tag: "Afternoon Strategy", is_booked: false },
+  { id: "05:00 PM", label: "05:00 PM", tag: "Evening Operations", is_booked: false },
+  { id: "08:30 PM", label: "08:30 PM", tag: "Global / Remote", is_booked: false },
 ];
 
 export function BookCallModal({
   isOpen,
   onClose,
-  defaultIndustry = "Agency",
+  defaultIndustry,
 }: BookCallModalProps) {
-  const [callType, setCallType] = useState<string>("agency_demo");
-  const [fullName, setFullName] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
-  const [company, setCompany] = useState<string>("");
-  const [industry, setIndustry] = useState<string>(defaultIndustry);
-  const [preferredDate, setPreferredDate] = useState<string>("");
-  const [preferredSlot, setPreferredSlot] = useState<string>(TIME_SLOTS[1]);
-  const [notes, setNotes] = useState<string>("");
-  const [submitted, setSubmitted] = useState<boolean>(false);
+  const todayStr = useMemo(() => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
+
+  const [bookingDate, setBookingDate] = useState<string>(todayStr);
+  const [slots, setSlots] = useState<TimeSlotItem[]>(FALLBACK_SLOTS);
+  const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
+  const [selectedSlot, setSelectedSlot] = useState<string>("");
+
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [industry, setIndustry] = useState(() =>
+    mapIndustryToOption(defaultIndustry)
+  );
+  const [notes, setNotes] = useState("");
+
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [confirmedData, setConfirmedData] = useState<{
+    date: string;
+    slot: string;
+  } | null>(null);
+
+  const fetchSlotsForDate = async (targetDate: string) => {
+    setLoadingSlots(true);
+    setErrorMsg("");
+    try {
+      const res = await fetch(
+        `${RAW_API_URL}/api/v1/bookings/slots?booking_date=${targetDate}`
+      );
+      if (!res.ok) throw new Error("Unable to fetch live slots.");
+      const data = await res.json();
+      const fetchedSlots: TimeSlotItem[] = data.slots || FALLBACK_SLOTS;
+      setSlots(fetchedSlots);
+
+      const stillFree = fetchedSlots.some(
+        (s) => s.id === selectedSlot && !s.is_booked
+      );
+      if (!stillFree) {
+        setSelectedSlot("");
+      }
+    } catch {
+      setSlots(FALLBACK_SLOTS);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setConfirmedData(null);
+    setErrorMsg("");
+    if (defaultIndustry) {
+      setIndustry(mapIndustryToOption(defaultIndustry));
+    }
+    fetchSlotsForDate(bookingDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, bookingDate, defaultIndustry]);
 
   if (!isOpen) return null;
 
-  const selectedCallObj =
-    CALL_TYPES.find((c) => c.id === callType) || CALL_TYPES[1];
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
-  };
+    if (!selectedSlot) {
+      setErrorMsg("Please select an available time slot.");
+      return;
+    }
 
-  const resetAndClose = () => {
-    setSubmitted(false);
-    onClose();
-  };
+    setSubmitting(true);
+    setErrorMsg("");
 
-  const mailtoSubject = encodeURIComponent(
-    `Strategy Call Request: ${company || fullName} (${selectedCallObj.title})`
-  );
-  const mailtoBody = encodeURIComponent(
-    `Hi StarEleven AI Team,\n\nI would like to confirm a strategy call:\n- Name: ${fullName}\n- Email: ${email}\n- Company: ${company}\n- Industry: ${industry}\n- Session: ${selectedCallObj.title}\n- Preferred Date: ${preferredDate || "Next Available"}\n- Preferred Time: ${preferredSlot}\n- Goals: ${notes || "General platform walkthrough"}\n`
-  );
+    try {
+      const res = await fetch(`${RAW_API_URL}/api/v1/bookings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: fullName.trim(),
+          email: email.trim(),
+          company_name: companyName.trim() || null,
+          industry,
+          booking_date: bookingDate,
+          time_slot: selectedSlot,
+          notes: notes.trim() || null,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await fetchSlotsForDate(bookingDate);
+        }
+        throw new Error(data.detail || "Could not complete your booking.");
+      }
+
+      setSlots((prev) =>
+        prev.map((s) =>
+          s.id === selectedSlot ? { ...s, is_booked: true } : s
+        )
+      );
+      setConfirmedData({ date: bookingDate, slot: selectedSlot });
+      setSelectedSlot("");
+    } catch (err: unknown) {
+      setErrorMsg(
+        err instanceof Error ? err.message : "Failed to schedule call."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-sm"
-        onClick={resetAndClose}
-      />
-
-      {/* Modal Card */}
-      <div className="relative z-10 max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-zinc-800 bg-[#121215] p-6 shadow-[0_0_50px_rgba(0,0,0,0.9)] sm:p-7">
-        <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#84CC16] to-transparent" />
-
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="relative w-full max-w-xl rounded-2xl border border-zinc-800 bg-[#18181B] p-6 shadow-2xl sm:p-8">
+        {/* Top Header */}
+        <div className="flex items-start justify-between border-b border-zinc-800 pb-4">
           <div>
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-[#84CC16]/35 bg-[#84CC16]/10 px-3 py-1 font-mono text-[11px] font-bold text-[#A3E635]">
-              <PhoneCall className="h-3 w-3 text-[#84CC16]" />
-              <span>1-ON-1 STRATEGY & DEMO CALL</span>
-            </div>
-            <h3 className="mt-2.5 text-xl font-extrabold text-white sm:text-2xl">
-              Book a Call with StarEleven AI
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-[#A3E635]">
+              1-on-1 Architecture Call
+            </span>
+            <h3 className="mt-2 text-xl font-bold text-white">
+              Book a Strategy &amp; Demo Session
             </h3>
             <p className="mt-1 text-xs text-zinc-400">
-              No technical jargon — we&apos;ll show you how AI agents can save
-              hours and qualify leads for your business.
+              Select an open time slot below. Booked slots lock automatically.
             </p>
           </div>
-
           <button
             type="button"
-            onClick={resetAndClose}
+            onClick={onClose}
+            className="rounded-lg border border-zinc-800 bg-[#09090B] p-2 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
             aria-label="Close modal"
-            className="rounded-xl border border-zinc-800 bg-[#09090B] p-2 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {submitted ? (
-          <div className="mt-6 rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/10 p-6 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#84CC16] text-[#09090B]">
-              <CheckCircle2 className="h-6 w-6" />
+        {confirmedData ? (
+          <div className="py-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+              <CheckCircle2 className="h-7 w-7" />
             </div>
-            <h4 className="mt-4 text-lg font-extrabold text-white">
-              Your Call Request is Reserved!
+            <h4 className="mt-4 text-lg font-bold text-white">
+              Strategy Call Confirmed
             </h4>
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
-              Thank you, <strong>{fullName}</strong>. We have logged your{" "}
-              <span className="text-[#A3E635]">{selectedCallObj.title}</span>{" "}
-              for <strong>{preferredDate || "the next available slot"}</strong>{" "}
-              at <strong>{preferredSlot}</strong>. Our team will send the
-              Google Meet invite to <strong>{email}</strong>.
+            <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
+              We have locked{" "}
+              <span className="font-semibold text-[#A3E635]">
+                {confirmedData.slot}
+              </span>{" "}
+              on{" "}
+              <span className="font-semibold text-white">
+                {confirmedData.date}
+              </span>{" "}
+              and sent a confirmation email to{" "}
+              <span className="text-zinc-200">{email}</span>.
             </p>
-
-            <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a
-                href={`mailto:hello@starelevenai.com?subject=${mailtoSubject}&body=${mailtoBody}`}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#84CC16] px-4 py-2.5 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635] sm:w-auto"
-              >
-                <Mail className="h-3.5 w-3.5" />
-                <span>Send Instant Calendar Ping</span>
-              </a>
-              <button
-                type="button"
-                onClick={resetAndClose}
-                className="w-full rounded-xl border border-zinc-700 bg-[#09090B] px-4 py-2.5 text-xs font-semibold text-zinc-200 hover:text-white sm:w-auto"
-              >
-                Back to Website
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-6 rounded-xl bg-[#84CC16] px-6 py-2.5 text-sm font-bold text-[#09090B] transition hover:bg-[#A3E635]"
+            >
+              Back to StarEleven AI
+            </button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            {/* Call Duration Type */}
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              {CALL_TYPES.map((item) => {
-                const active = callType === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setCallType(item.id)}
-                    className={`rounded-xl border p-3 text-left transition ${
-                      active
-                        ? "border-[#84CC16] bg-[#84CC16]/15"
-                        : "border-zinc-800 bg-[#09090B] hover:border-zinc-700"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white">
-                        {item.title}
-                      </span>
-                      {active && (
-                        <Sparkles className="h-3.5 w-3.5 text-[#84CC16]" />
-                      )}
-                    </div>
-                    <p className="mt-1 text-[11px] text-zinc-400">
-                      {item.subtitle}
-                    </p>
-                  </button>
-                );
-              })}
+          <form onSubmit={handleBookingSubmit} className="mt-5 space-y-4">
+            {/* Date Picker */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                <Calendar className="h-3.5 w-3.5 text-[#84CC16]" />
+                Select Date
+              </label>
+              <input
+                type="date"
+                required
+                min={todayStr}
+                value={bookingDate}
+                onChange={(e) => setBookingDate(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2.5 text-sm text-white focus:border-[#84CC16] focus:outline-none"
+              />
             </div>
 
-            {/* Name & Email */}
+            {/* 4 Professional Time Slots */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                  <Clock className="h-3.5 w-3.5 text-[#84CC16]" />
+                  Select Time Slot (PKT / UTC+5)
+                </label>
+                {loadingSlots && (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-zinc-400">
+                    <Loader2 className="h-3 w-3 animate-spin text-[#84CC16]" />
+                    Syncing slots...
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2.5">
+                {slots.map((slot) => {
+                  const isSelected = selectedSlot === slot.id && !slot.is_booked;
+                  return (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      disabled={slot.is_booked || loadingSlots}
+                      onClick={() => setSelectedSlot(slot.id)}
+                      className={`flex items-center justify-between rounded-xl border px-3.5 py-3 text-left transition ${
+                        slot.is_booked
+                          ? "cursor-not-allowed border-zinc-800/70 bg-[#09090B]/50 opacity-55"
+                          : isSelected
+                          ? "border-[#84CC16] bg-[#84CC16]/15 text-white"
+                          : "border-zinc-800 bg-[#09090B] text-zinc-200 hover:border-zinc-700"
+                      }`}
+                    >
+                      <div>
+                        <div
+                          className={`font-mono text-sm font-bold ${
+                            slot.is_booked
+                              ? "line-through text-zinc-500"
+                              : isSelected
+                              ? "text-[#A3E635]"
+                              : "text-white"
+                          }`}
+                        >
+                          {slot.label}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-400">
+                          {slot.tag}
+                        </div>
+                      </div>
+
+                      {slot.is_booked ? (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-rose-400">
+                          <Lock className="h-2.5 w-2.5" />
+                          Booked
+                        </span>
+                      ) : (
+                        <span
+                          className={`rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${
+                            isSelected
+                              ? "bg-[#84CC16] text-[#09090B]"
+                              : "bg-zinc-800 text-zinc-300"
+                          }`}
+                        >
+                          {isSelected ? "Selected" : "Available"}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Contact Details */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-300">
-                  Your Name *
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                  <User className="h-3.5 w-3.5 text-zinc-400" />
+                  Full Name
                 </label>
                 <input
                   type="text"
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Ahmed Raza"
-                  className="h-10 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-[#84CC16]"
+                  placeholder="Faisal Shah"
+                  className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 text-sm text-white placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
                 />
               </div>
+
               <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-300">
-                  Work Email *
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                  <Mail className="h-3.5 w-3.5 text-zinc-400" />
+                  Work Email
                 </label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ahmed@company.com"
-                  className="h-10 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-[#84CC16]"
+                  placeholder="founder@company.com"
+                  className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 text-sm text-white placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
                 />
               </div>
             </div>
 
-            {/* Company & Business Industry */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-300">
-                  Business / Agency Name
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                  <Building2 className="h-3.5 w-3.5 text-zinc-400" />
+                  Company / Agency Name
                 </label>
                 <input
                   type="text"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  placeholder="Prime Properties"
-                  className="h-10 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-[#84CC16]"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="StarEleven Solutions"
+                  className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 text-sm text-white placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
                 />
               </div>
+
               <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-300">
-                  Your Industry
+                <label className="block text-xs font-semibold text-zinc-300">
+                  Business Industry
                 </label>
                 <select
                   value={industry}
                   onChange={(e) => setIndustry(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 text-xs text-white outline-none focus:border-[#84CC16]"
+                  className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 text-sm text-white focus:border-[#84CC16] focus:outline-none"
                 >
-                  <option value="Agency">Marketing / AI Agency</option>
-                  <option value="Real Estate">Real Estate & Property</option>
-                  <option value="E-Commerce">E-Commerce & Online Store</option>
-                  <option value="Healthcare">Healthcare & Clinics</option>
-                  <option value="Education">Education & Institutes</option>
-                  <option value="SaaS">SaaS & Software</option>
-                  <option value="Other">Other Business</option>
+                  <option value="agency">Agency &amp; Consulting</option>
+                  <option value="real_estate">Real Estate &amp; Property</option>
+                  <option value="ecommerce">E-commerce &amp; D2C</option>
+                  <option value="healthcare">Healthcare &amp; Clinics</option>
+                  <option value="education">Education &amp; EdTech</option>
+                  <option value="saas">SaaS &amp; B2B Tech</option>
+                  <option value="other">Other Vertical</option>
                 </select>
               </div>
             </div>
 
-            {/* Preferred Date & Time Slot */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-300">
-                  <Calendar className="h-3.5 w-3.5 text-[#84CC16]" />
-                  <span>Preferred Date *</span>
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={preferredDate}
-                  onChange={(e) => setPreferredDate(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 text-xs text-white outline-none focus:border-[#84CC16]"
-                />
-              </div>
-              <div>
-                <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-300">
-                  <Clock className="h-3.5 w-3.5 text-[#84CC16]" />
-                  <span>Preferred Time</span>
-                </label>
-                <select
-                  value={preferredSlot}
-                  onChange={(e) => setPreferredSlot(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3 text-xs text-white outline-none focus:border-[#84CC16]"
-                >
-                  {TIME_SLOTS.map((slot) => (
-                    <option key={slot} value={slot}>
-                      {slot}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Optional Note */}
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-300">
+              <label className="block text-xs font-semibold text-zinc-300">
                 What would you like to automate? (Optional)
               </label>
               <textarea
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g., Qualify property buyers automatically, manage 5 client accounts, or connect our team..."
-                className="w-full rounded-xl border border-zinc-800 bg-[#09090B] p-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-[#84CC16]"
+                placeholder="Tell us about your team size, client workspaces, or custom agents..."
+                className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#09090B] px-3.5 py-2 text-sm text-white placeholder-zinc-500 focus:border-[#84CC16] focus:outline-none"
               />
             </div>
 
-            <div className="flex flex-col-reverse items-center justify-between gap-3 border-t border-zinc-800 pt-4 sm:flex-row">
-              <a
-                href="mailto:hello@starelevenai.com"
-                className="text-xs text-zinc-400 hover:text-[#A3E635]"
+            {errorMsg && (
+              <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-300">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl border border-zinc-800 bg-[#09090B] px-4 py-2.5 text-xs font-semibold text-zinc-300 transition hover:border-zinc-700 hover:text-white"
               >
-                Or email{" "}
-                <span className="underline">hello@starelevenai.com</span>
-              </a>
+                Cancel
+              </button>
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#84CC16] px-6 py-3 text-xs font-bold text-[#09090B] shadow-[0_0_24px_rgba(132,204,22,0.28)] transition hover:bg-[#A3E635] sm:w-auto"
+                disabled={submitting || !selectedSlot}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#84CC16] px-5 py-2.5 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Calendar className="h-4 w-4" />
-                <span>Confirm Strategy Call</span>
+                {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {submitting ? "Confirming Slot..." : "Confirm & Lock Time Slot"}
               </button>
             </div>
           </form>

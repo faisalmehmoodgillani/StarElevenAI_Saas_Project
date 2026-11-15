@@ -16,8 +16,8 @@ export default function HomePage() {
   const [selectedIndustry, setSelectedIndustry] = useState<string>("Agency");
 
   const handleOpenBookCall = (industryName?: string) => {
-    if (industryName) {
-      setSelectedIndustry(industryName);
+    if (industryName && industryName.trim()) {
+      setSelectedIndustry(industryName.trim());
     }
     setBookCallOpen(true);
   };
@@ -25,6 +25,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#09090B] text-zinc-100 selection:bg-[#84CC16]/30 selection:text-[#A3E635]">
       <Navbar onOpenBookCall={() => handleOpenBookCall()} />
+
       <main>
         <HeroSection onOpenBookCall={() => handleOpenBookCall()} />
         <AgentFlowVisual />
