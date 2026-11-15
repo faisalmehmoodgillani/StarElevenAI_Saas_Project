@@ -1,83 +1,18 @@
+"use client";
+
 import React from "react";
 import {
   BrainCircuit,
   Cpu,
   KeyRound,
   Layers,
+  Lock,
   Network,
-  ShieldAlert,
+  ShieldCheck,
   Users,
   Workflow,
 } from "lucide-react";
-
-const BENTO_FEATURES = [
-  {
-    title: "Save 70% on AI Bills — Bring Your Own Keys ($0/mo)",
-    description:
-      "Connect your own Groq, Google Gemini, OpenAI, Claude, or OpenRouter keys inside a secure vault. Pay AI providers directly at wholesale rates with zero extra markup from us — or pick an all-inclusive plan if you don't want to manage keys.",
-    badge: "ZERO MARKUP • 5 PROVIDERS",
-    techSpec: "Under the hood: Fernet AES-256 encrypted key vault",
-    icon: KeyRound,
-    span: "lg:col-span-7",
-    highlight: true,
-    chips: ["Groq Fast AI", "Google Gemini", "OpenAI GPT", "Anthropic Claude", "OpenRouter"],
-  },
-  {
-    title: "100% Separate Space for Every Client",
-    description:
-      "Manage 5 or 50 client brands from one login. Every client gets their own private chat history, lead records, and monthly usage limit so data never mixes across accounts.",
-    badge: "STRICT CLIENT PRIVACY",
-    techSpec: "Under the hood: PostgreSQL Row-Level Security (RLS)",
-    icon: Layers,
-    span: "lg:col-span-5",
-    highlight: false,
-    chips: ["Private Client Memory", "1-Click Data Purge"],
-  },
-  {
-    title: "AI That Searches Live Web & Qualifies Leads",
-    description:
-      "Instead of generic replies, StarEleven automatically routes tasks to the right AI specialist — checking live Google/web data, qualifying buyer budgets, and updating your CRM in real time.",
-    badge: "SMART ACTION AGENTS",
-    techSpec: "Under the hood: LangGraph Meta-Router + Tavily + SSE",
-    icon: Network,
-    span: "lg:col-span-5",
-    highlight: false,
-    chips: ["Live Web Research", "Auto Lead Scoring"],
-  },
-  {
-    title: "Invite Your Staff Without Sharing API Keys",
-    description:
-      "Add team members or client staff via email invitation. Owners control billing and secret keys, while Operators can run daily AI chats and lead tasks safely without ever seeing your private credentials.",
-    badge: "SAFE TEAM COLLABORATION",
-    techSpec: "Under the hood: Role-Based Access Control (Owner / Operator)",
-    icon: Users,
-    span: "lg:col-span-7",
-    highlight: false,
-    chips: ["Hidden Secret Keys", "Staff Role Permissions", "Gmail Invites"],
-  },
-  {
-    title: "1-Click Setup for Your Specific Industry",
-    description:
-      "Don't waste weeks writing prompts. Pick your business type (Real Estate, Agency, E-Commerce, Clinic, Education, or SaaS) and StarEleven automatically loads proven sales questions and safety rules.",
-    badge: "NO PROMPT ENGINEERING",
-    techSpec: "Under the hood: Dynamic Industry System Prompts & Guardrails",
-    icon: BrainCircuit,
-    span: "lg:col-span-6",
-    highlight: false,
-    chips: ["Ready Sales Scripts", "Brand Safety Rules"],
-  },
-  {
-    title: "Built to Connect With Your Existing Tools",
-    description:
-      "Seamlessly link your AI workforce with external CRMs, email workflows, and internal knowledge documents so your team works from one unified command center.",
-    badge: "FUTURE-PROOF INTEGRATIONS",
-    techSpec: "Under the hood: FastAPI v1 + Model Context Protocol (MCP)",
-    icon: Workflow,
-    span: "lg:col-span-6",
-    highlight: false,
-    chips: ["CRM & Workflow Ready", "REST & Live Streaming"],
-  },
-];
+import { Spotlight3DCard } from "./Spotlight3DCard";
 
 export function CapabilitiesBento() {
   return (
@@ -89,81 +24,213 @@ export function CapabilitiesBento() {
         <div className="mx-auto max-w-3xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-3.5 py-1 text-xs font-semibold text-[#A3E635]">
             <Cpu className="h-3.5 w-3.5 text-[#84CC16]" />
-            <span>Key Benefits &amp; Capabilities</span>
+            <span>3D Enterprise Capabilities</span>
           </div>
           <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            Everything You Need to Automate Work &amp; Scale Client Accounts
+            Built to Save Costs, Protect Clients &amp; Scale Fast
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-zinc-400 sm:text-base">
-            Designed to be effortless for non-technical business owners, while
-            giving technical teams full enterprise security and API control.
+            Simple enough for any business owner to launch in 60 seconds —
+            powerful enough for technical teams to customize every layer.
           </p>
         </div>
 
+        {/* 12-Column 3D Spotlight Bento Grid */}
         <div className="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-12">
-          {BENTO_FEATURES.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.title}
-                className={`group relative flex flex-col justify-between overflow-hidden rounded-2xl border p-6 transition-all duration-300 sm:p-7 ${
-                  item.span
-                } ${
-                  item.highlight
-                    ? "border-[#84CC16]/50 bg-gradient-to-br from-[#131710] via-[#121215] to-[#121215] shadow-[0_0_35px_rgba(132,204,22,0.1)] hover:border-[#84CC16]"
-                    : "border-zinc-800 bg-[#121215] hover:border-[#84CC16]/45"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635] transition-transform duration-300 group-hover:scale-105">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <span className="rounded-full border border-zinc-800 bg-[#09090B] px-3 py-1 font-mono text-[10px] font-bold tracking-wider text-zinc-400 group-hover:border-[#84CC16]/30 group-hover:text-[#A3E635]">
-                      {item.badge}
-                    </span>
-                  </div>
+          {/* Card 1: BYOK Vault with Visual Provider Matrix (7 Cols) */}
+          <Spotlight3DCard highlighted={true} className="p-6 sm:p-7 lg:col-span-7">
+            <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+              <div className="max-w-md">
+                <span className="rounded-full border border-[#84CC16]/40 bg-[#84CC16]/15 px-3 py-1 font-mono text-[10px] font-bold text-[#A3E635]">
+                  $0/MO PLATFORM FEE • ZERO MARKUP
+                </span>
+                <h3 className="mt-4 text-xl font-extrabold text-white">
+                  Bring Your Own AI Keys — Save Up to 70%
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-zinc-300 sm:text-sm">
+                  Plug in your own Groq, Gemini, OpenAI, Claude, or OpenRouter
+                  keys inside an encrypted vault, or pick an all-inclusive
+                  Managed plan with zero setup.
+                </p>
+                <p className="mt-3 font-mono text-[11px] text-zinc-500">
+                  Tech: Fernet AES-256 Encrypted Key Custody
+                </p>
+              </div>
 
-                  <h3 className="mt-5 text-lg font-bold text-white sm:text-xl">
-                    {item.title}
-                  </h3>
-                  <p className="mt-2.5 text-xs leading-relaxed text-zinc-300 sm:text-sm">
-                    {item.description}
+              {/* Animated Visual Vault Widget */}
+              <div className="shrink-0 rounded-2xl border border-zinc-800 bg-[#09090B] p-4 sm:w-56">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                  <span className="font-mono text-[10px] font-bold text-[#A3E635]">
+                    AES-256 VAULT
+                  </span>
+                  <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
+                </div>
+                <div className="mt-3 space-y-2">
+                  {[
+                    { name: "Groq LPU", status: "ENCRYPTED" },
+                    { name: "Gemini 2.5", status: "ENCRYPTED" },
+                    { name: "OpenAI / Claude", status: "READY" },
+                  ].map((row) => (
+                    <div
+                      key={row.name}
+                      className="flex items-center justify-between rounded-lg border border-zinc-800/80 bg-[#121215] px-2.5 py-1.5 text-[11px]"
+                    >
+                      <span className="font-medium text-zinc-200">
+                        {row.name}
+                      </span>
+                      <span className="font-mono text-[9px] font-bold text-[#84CC16]">
+                        {row.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Spotlight3DCard>
+
+          {/* Card 2: Multi-Tenant Stacked Workspaces (5 Cols) */}
+          <Spotlight3DCard className="p-6 sm:p-7 lg:col-span-5">
+            <div className="flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                <Layers className="h-5 w-5" />
+              </div>
+              <span className="font-mono text-[10px] font-bold text-zinc-400">
+                100% CLIENT ISOLATION
+              </span>
+            </div>
+
+            <h3 className="mt-4 text-lg font-extrabold text-white">
+              Separate Private Space Per Client
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-300">
+              Manage 5 or 50 client brands from one login. Every client gets
+              private memory, leads, and quotas.
+            </p>
+
+            {/* Stacked Workspace Visual */}
+            <div className="mt-4 space-y-1.5 rounded-xl border border-zinc-800 bg-[#09090B] p-3">
+              <div className="flex items-center justify-between rounded-lg border border-[#84CC16]/40 bg-[#84CC16]/10 px-3 py-1.5 text-[11px] font-semibold text-white">
+                <span>Client A • Real Estate</span>
+                <span className="font-mono text-[9px] text-[#A3E635]">ISOLATED</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-[#121215] px-3 py-1.5 text-[11px] text-zinc-400">
+                <span>Client B • E-Commerce</span>
+                <span className="font-mono text-[9px]">ISOLATED</span>
+              </div>
+            </div>
+          </Spotlight3DCard>
+
+          {/* Card 3: Smart Action Agents (5 Cols) */}
+          <Spotlight3DCard className="p-6 sm:p-7 lg:col-span-5">
+            <div className="flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                <Network className="h-5 w-5" />
+              </div>
+              <span className="font-mono text-[10px] font-bold text-zinc-400">
+                LIVE WEB + CRM
+              </span>
+            </div>
+            <h3 className="mt-4 text-lg font-extrabold text-white">
+              AI That Takes Real Action
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-300">
+              Searches live Google/web data, scores lead budgets, and updates
+              your database automatically in real time.
+            </p>
+            <p className="mt-4 border-t border-zinc-800/80 pt-3 font-mono text-[11px] text-zinc-500">
+              Tech: LangGraph Meta-Router + Tavily + SSE
+            </p>
+          </Spotlight3DCard>
+
+          {/* Card 4: Safe Staff Permissions (7 Cols) */}
+          <Spotlight3DCard className="p-6 sm:p-7 lg:col-span-7">
+            <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+              <div className="max-w-md">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  <span className="font-mono text-[10px] font-bold text-[#A3E635]">
+                    OWNER &amp; OPERATOR ROLES
+                  </span>
+                </div>
+                <h3 className="mt-4 text-xl font-extrabold text-white">
+                  Invite Staff Without Exposing Secret Keys
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-zinc-300 sm:text-sm">
+                  Send 1-click email invites to your team or client operators.
+                  They can chat and manage leads daily while billing and API
+                  keys stay locked to you.
+                </p>
+              </div>
+
+              {/* RBAC Visual Card */}
+              <div className="shrink-0 space-y-2 rounded-2xl border border-zinc-800 bg-[#09090B] p-4 sm:w-56">
+                <div className="rounded-lg border border-[#84CC16]/40 bg-[#84CC16]/10 p-2.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-[#A3E635]">
+                    <span>Owner</span>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-zinc-300">
+                    Full Vault, Billing &amp; Team Control
                   </p>
                 </div>
-
-                <div className="mt-5 space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    {item.chips.map((chip) => (
-                      <span
-                        key={chip}
-                        className="rounded-lg border border-zinc-800/90 bg-[#09090B] px-2.5 py-1 text-[11px] font-medium text-zinc-200"
-                      >
-                        {chip}
-                      </span>
-                    ))}
+                <div className="rounded-lg border border-zinc-800 bg-[#121215] p-2.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-zinc-200">
+                    <span>Operator</span>
+                    <KeyRound className="h-3.5 w-3.5 text-zinc-500" />
                   </div>
-                  <p className="border-t border-zinc-800/70 pt-2.5 font-mono text-[11px] text-zinc-500">
-                    {item.techSpec}
+                  <p className="mt-0.5 text-[10px] text-zinc-400">
+                    Runs AI Chats &amp; Leads (Keys Hidden)
                   </p>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          </Spotlight3DCard>
 
-        <div className="mt-6 flex flex-col items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-[#121215]/80 px-5 py-4 text-xs text-zinc-300 sm:flex-row">
-          <div className="flex items-center gap-2.5">
-            <ShieldAlert className="h-4 w-4 shrink-0 text-[#84CC16]" />
-            <span>
-              <strong className="text-white">100% Peace of Mind:</strong> Your
-              staff can use your workspace AI daily without ever seeing,
-              copying, or leaking your private API keys.
-            </span>
-          </div>
-          <span className="font-mono text-[11px] text-[#A3E635]">
-            BANK-GRADE ENCRYPTION
-          </span>
+          {/* Card 5: Industry Brain (6 Cols) */}
+          <Spotlight3DCard className="p-6 sm:p-7 lg:col-span-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                <BrainCircuit className="h-5 w-5" />
+              </div>
+              <div>
+                <span className="font-mono text-[10px] font-bold text-[#A3E635]">
+                  NO PROMPT ENGINEERING
+                </span>
+                <h3 className="text-lg font-extrabold text-white">
+                  1-Click Industry AI Brain
+                </h3>
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-zinc-300 sm:text-sm">
+              Pick Real Estate, Agency, E-Commerce, Healthcare, Education, or
+              SaaS — StarEleven loads proven sales qualification questions and
+              safety guardrails automatically.
+            </p>
+          </Spotlight3DCard>
+
+          {/* Card 6: MCP & Workflow Ready (6 Cols) */}
+          <Spotlight3DCard className="p-6 sm:p-7 lg:col-span-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635]">
+                <Workflow className="h-5 w-5" />
+              </div>
+              <div>
+                <span className="font-mono text-[10px] font-bold text-[#A3E635]">
+                  MCP + FASTAPI V1
+                </span>
+                <h3 className="text-lg font-extrabold text-white">
+                  Ready for External Tools &amp; Workflows
+                </h3>
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-zinc-300 sm:text-sm">
+              Built on standardized Model Context Protocol (MCP) and modular
+              APIs so your agents connect smoothly to CRMs, documents, and
+              custom automations.
+            </p>
+          </Spotlight3DCard>
         </div>
       </div>
     </section>

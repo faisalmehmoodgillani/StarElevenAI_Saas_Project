@@ -3,8 +3,9 @@
 import React, { useState } from "react";
 import { Navbar } from "@/components/landing/Navbar";
 import { HeroSection } from "@/components/landing/HeroSection";
-import { ComparisonMatrix } from "@/components/landing/ComparisonMatrix";
+import { AgentFlowVisual } from "@/components/landing/AgentFlowVisual";
 import { CapabilitiesBento } from "@/components/landing/CapabilitiesBento";
+import { ComparisonMatrix } from "@/components/landing/ComparisonMatrix";
 import { IndustriesShowcase } from "@/components/landing/IndustriesShowcase";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FaqAndCta } from "@/components/landing/FaqAndCta";
@@ -26,8 +27,9 @@ export default function HomePage() {
       <Navbar onOpenBookCall={() => handleOpenBookCall()} />
       <main>
         <HeroSection onOpenBookCall={() => handleOpenBookCall()} />
-        <ComparisonMatrix />
+        <AgentFlowVisual />
         <CapabilitiesBento />
+        <ComparisonMatrix />
         <IndustriesShowcase onOpenBookCall={handleOpenBookCall} />
         <PricingSection />
         <FaqAndCta onOpenBookCall={() => handleOpenBookCall()} />

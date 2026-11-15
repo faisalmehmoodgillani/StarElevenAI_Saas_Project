@@ -16,7 +16,9 @@ import {
   ShieldCheck,
   Sparkles,
   Terminal,
+  Zap,
 } from "lucide-react";
+import { Spotlight3DCard } from "./Spotlight3DCard";
 
 type DemoWorkspace = "apex_realty" | "nova_agency";
 type DemoAgent = "meta_router" | "research_agent" | "crm_agent";
@@ -26,7 +28,6 @@ const WORKSPACE_DEMOS: Record<
   DemoWorkspace,
   {
     name: string;
-    industry: string;
     planBadge: string;
     prompt: string;
     outputs: Record<
@@ -43,10 +44,9 @@ const WORKSPACE_DEMOS: Record<
 > = {
   apex_realty: {
     name: "Apex Luxury Realty",
-    industry: "Real Estate & Property",
     planBadge: "PRIVATE WORKSPACE • $0/MO BYOK",
     prompt:
-      "Qualify buyer Omar K. ($450K budget, waterfront apartment) and check latest rental yield rates.",
+      "Qualify buyer Omar K. ($450K budget, waterfront villa) and check latest rental yield rates.",
     outputs: {
       meta_router: {
         routeLabel: "Smart AI Team → Market Research + Buyer Qualification",
@@ -54,8 +54,8 @@ const WORKSPACE_DEMOS: Record<
         responseTitle: "High-Intent Cash Buyer Qualified (Score: 94/100)",
         bullets: [
           "Buyer Profile: Ready to invest $450K–$520K within 30 days.",
-          "Live Market Check: Waterfront 2BR units are earning 7.4% annual yield.",
-          "Action Taken: Viewing slot reserved & buyer summary saved to CRM.",
+          "Live Market Check: Waterfront units earning 7.4% annual yield.",
+          "Action Taken: Viewing slot reserved & saved to private CRM.",
         ],
         latency: "0.4s Live",
       },
@@ -64,9 +64,9 @@ const WORKSPACE_DEMOS: Record<
         toolTrace: "Scanning current waterfront occupancy & rental trends...",
         responseTitle: "Live Waterfront Rental Yield Report",
         bullets: [
-          "Prime waterfront occupancy reached 96.2% in the latest quarter.",
+          "Prime waterfront occupancy reached 96.2% this quarter.",
           "Furnished short-stay units earn +1.8% higher net returns.",
-          "All research stays 100% private inside Apex Realty's workspace.",
+          "All research stays 100% private inside Apex Realty's account.",
         ],
         latency: "0.6s Live",
       },
@@ -75,9 +75,9 @@ const WORKSPACE_DEMOS: Record<
         toolTrace: "Updating buyer profile & notifying property advisor...",
         responseTitle: "Buyer Lead Saved & Assigned",
         bullets: [
-          "Status: Hot Cash Investor • Assigned to Senior Property Advisor.",
-          "Checklist Complete: Budget, location & timeline confirmed automatically.",
-          "100% isolated — other client accounts cannot see this data.",
+          "Status: Hot Cash Investor • Assigned to Senior Advisor.",
+          "Checklist Complete: Budget, location & timeline confirmed.",
+          "Zero data mixing — other client accounts cannot see this.",
         ],
         latency: "0.3s Live",
       },
@@ -85,8 +85,7 @@ const WORKSPACE_DEMOS: Record<
   },
   nova_agency: {
     name: "Nova Growth Agency",
-    industry: "Marketing & B2B Agency",
-    planBadge: "ALL-INCLUSIVE PLAN • ZERO SETUP",
+    planBadge: "MANAGED PLAN • ZERO SETUP",
     prompt:
       "Research prospect CloudPulse and write a tailored AI automation proposal for their sales team.",
     outputs: {
@@ -95,9 +94,9 @@ const WORKSPACE_DEMOS: Record<
         toolTrace: "Researching CloudPulse growth signals & drafting scope...",
         responseTitle: "Custom Client Proposal Ready in 4 Seconds",
         bullets: [
-          "Problem Found: Their sales team takes 14+ hours to reply to new leads.",
-          "Solution Pitch: 24/7 AI Lead Qualifier + Instant Calendar Booking.",
-          "Expected Result: 3.4x more booked demos in the first 45 days.",
+          "Problem Found: Sales team takes 14+ hours to reply to leads.",
+          "Solution Pitch: 24/7 AI Lead Qualifier + Instant Call Booking.",
+          "Expected Result: 3.4x more booked demos in 45 days.",
         ],
         latency: "0.4s Live",
       },
@@ -106,9 +105,9 @@ const WORKSPACE_DEMOS: Record<
         toolTrace: "Checking CloudPulse news, team size & hiring trends...",
         responseTitle: "Company Snapshot — CloudPulse Inc.",
         bullets: [
-          "45-person B2B software company currently expanding their sales team.",
-          "Recently launched a new enterprise product with high inquiry volume.",
-          "Insights saved exclusively to Nova Growth Agency's workspace.",
+          "45-person B2B software company expanding their sales team.",
+          "Recently launched an enterprise tier with high inquiry volume.",
+          "Insights saved exclusively to Nova Growth's workspace.",
         ],
         latency: "0.6s Live",
       },
@@ -118,7 +117,7 @@ const WORKSPACE_DEMOS: Record<
         responseTitle: "Proposal Logged for Team Review",
         bullets: [
           "Recommended Retainer: $4,500/mo AI Sales Automation Setup.",
-          "Team Access: Account manager can edit without seeing billing keys.",
+          "Staff Access: Account manager works safely without seeing keys.",
           "Ready to send to client in one click.",
         ],
         latency: "0.3s Live",
@@ -132,6 +131,18 @@ const MODEL_LABELS: Record<DemoModel, { label: string; provider: string }> = {
   "gemini-2.5-flash": { label: "Gemini 2.5", provider: "Google" },
   "claude-3.7-sonnet": { label: "Claude 3.7", provider: "Anthropic" },
 };
+
+const MARQUEE_ITEMS = [
+  "Groq Ultra-Fast LPU",
+  "Google Gemini 2.5",
+  "OpenAI GPT-4o & o3",
+  "Anthropic Claude 3.7",
+  "OpenRouter 100+ Models",
+  "100% Isolated Client Workspaces",
+  "Bank-Grade AES-256 Vault",
+  "LangGraph Multi-Agent Engine",
+  "Live Web Intelligence",
+];
 
 interface HeroSectionProps {
   onOpenBookCall: () => void;
@@ -150,56 +161,58 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
   return (
     <section
       id="top"
-      className="relative overflow-hidden border-b border-zinc-800/80 pt-12 pb-20 sm:pt-18 sm:pb-24"
+      className="relative overflow-hidden border-b border-zinc-800/80 pt-12 pb-0 sm:pt-16"
     >
-      {/* Subtle Cyber Grid Background */}
+      {/* Perspective Cyber Floor Grid */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-20"
+        className="pointer-events-none absolute inset-0 opacity-25"
         style={{
           backgroundImage:
-            "linear-gradient(to right, #27272A 1px, transparent 1px), linear-gradient(to bottom, #27272A 1px, transparent 1px)",
-          backgroundSize: "48px 48px",
+            "radial-gradient(circle at 50% 25%, rgba(132,204,22,0.16), transparent 55%), linear-gradient(to right, #27272A 1px, transparent 1px), linear-gradient(to bottom, #27272A 1px, transparent 1px)",
+          backgroundSize: "100% 100%, 48px 48px, 48px 48px",
         }}
       />
 
-      {/* Ambient Electric Lime Glow */}
-      <div className="pointer-events-none absolute left-1/2 top-0 h-[420px] w-[760px] -translate-x-1/2 rounded-full bg-[#84CC16]/12 blur-[150px]" />
+      {/* Ambient Neon Orbs */}
+      <div className="pointer-events-none absolute -left-24 top-12 h-80 w-80 rounded-full bg-[#84CC16]/12 blur-[130px]" />
+      <div className="pointer-events-none absolute right-0 top-10 h-96 w-96 rounded-full bg-[#A3E635]/10 blur-[150px]" />
 
-      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12">
-          {/* Left 6 Columns: Crystal-Clear Business Outcome Copy */}
+          {/* Left 6 Columns: Persuasive Business Copy */}
           <div className="space-y-6 lg:col-span-6">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#84CC16]/35 bg-[#84CC16]/10 px-3.5 py-1.5 text-xs font-semibold text-[#A3E635]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#84CC16]/40 bg-[#84CC16]/10 px-3.5 py-1.5 text-xs font-semibold text-[#A3E635] shadow-[0_0_25px_rgba(132,204,22,0.18)]">
               <Sparkles className="h-3.5 w-3.5 text-[#84CC16]" />
-              <span>All-in-One AI Workforce for Businesses &amp; Agencies</span>
+              <span>Next-Gen AI Workforce for Businesses &amp; Agencies</span>
             </div>
 
-            <h1 className="text-4xl font-extrabold leading-[1.13] tracking-tight text-white sm:text-5xl xl:text-[52px]">
+            <h1 className="text-4xl font-extrabold leading-[1.12] tracking-tight text-white sm:text-5xl xl:text-[54px]">
               Your 24/7 AI Sales, Research &amp; Support Team —{" "}
-              <span className="bg-gradient-to-r from-[#84CC16] via-[#A3E635] to-lime-300 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-[#84CC16] via-[#A3E635] to-lime-200 bg-clip-text text-transparent">
                 Private for Every Client.
               </span>
             </h1>
 
             <p className="max-w-xl text-base leading-relaxed text-zinc-300 sm:text-lg">
-              ChatGPT only writes text. StarEleven gives each of your businesses
-              or clients a{" "}
+              ChatGPT only writes text. StarEleven gives every business or
+              client you manage a{" "}
               <strong className="font-semibold text-white">
                 100% separate, private AI workspace
               </strong>{" "}
-              that qualifies leads, researches live market data, and updates
-              your CRM automatically —{" "}
+              that qualifies leads, searches live market data, and updates your
+              CRM automatically —{" "}
               <span className="font-semibold text-[#A3E635]">
-                no coding or prompt skills needed.
+                zero coding required.
               </span>
             </p>
 
-            {/* Dual Conversion CTAs: Start Free + Book a Demo Call */}
+            {/* Primary & Secondary CTAs */}
             <div className="flex flex-col gap-3.5 pt-1 sm:flex-row sm:items-center">
               <Link
                 href="/register?plan=byok_free&interval=annual"
-                className="group inline-flex items-center justify-center gap-2 rounded-xl bg-[#84CC16] px-6 py-3.5 text-sm font-bold text-[#09090B] shadow-[0_0_30px_rgba(132,204,22,0.32)] transition-all hover:bg-[#A3E635] active:scale-[0.99]"
+                className="group inline-flex items-center justify-center gap-2 rounded-xl bg-[#84CC16] px-6 py-3.5 text-sm font-bold text-[#09090B] shadow-[0_0_32px_rgba(132,204,22,0.35)] transition-all hover:scale-[1.02] hover:bg-[#A3E635] active:scale-[0.99]"
               >
+                <Zap className="h-4 w-4 fill-current" />
                 <span>Start Free ($0/mo)</span>
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
@@ -207,14 +220,14 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
               <button
                 type="button"
                 onClick={onOpenBookCall}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-[#121215] px-6 py-3.5 text-sm font-semibold text-white transition hover:border-[#84CC16]/60 hover:text-[#A3E635]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-[#121215]/90 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition hover:border-[#84CC16]/60 hover:text-[#A3E635]"
               >
                 <Calendar className="h-4 w-4 text-[#84CC16]" />
                 <span>Book a 1-on-1 Demo Call</span>
               </button>
             </div>
 
-            {/* Non-Technical Business Guarantees */}
+            {/* Trust Guarantees */}
             <div className="grid grid-cols-1 gap-2.5 border-t border-zinc-800/80 pt-5 sm:grid-cols-3">
               <div className="flex items-center gap-2 text-xs text-zinc-300">
                 <ShieldCheck className="h-4 w-4 shrink-0 text-[#84CC16]" />
@@ -222,7 +235,7 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
               </div>
               <div className="flex items-center gap-2 text-xs text-zinc-300">
                 <Lock className="h-4 w-4 shrink-0 text-[#84CC16]" />
-                <span>Bank-Grade Key Security</span>
+                <span>Bank-Grade Key Vault</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-zinc-300">
                 <Cpu className="h-4 w-4 shrink-0 text-[#84CC16]" />
@@ -230,31 +243,41 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
               </div>
             </div>
 
-            {/* Clean Technical Architecture Pill (For CTOs & Technical Buyers) */}
+            {/* Subtle Tech Stack Line */}
             <div className="rounded-xl border border-zinc-800/90 bg-[#121215]/80 px-3.5 py-2.5 font-mono text-[11px] text-zinc-400">
-              <span className="font-bold text-[#A3E635]">Tech Stack:</span>{" "}
+              <span className="font-bold text-[#A3E635]">Architecture:</span>{" "}
               LangGraph Multi-Agent Router • PostgreSQL Row-Level Isolation •
-              AES-256 Key Vault • Groq, Gemini, OpenAI &amp; Claude
+              AES-256 Vault • Groq, Gemini, OpenAI &amp; Claude
             </div>
           </div>
 
-          {/* Right 6 Columns: Interactive Live Workspace Demo */}
-          <div className="lg:col-span-6">
-            <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-[#121215]/95 shadow-[0_0_50px_rgba(0,0,0,0.85)] backdrop-blur-xl">
-              <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#84CC16] to-transparent" />
+          {/* Right 6 Columns: 3D Tilted Floating AI Stage */}
+          <div className="relative lg:col-span-6">
+            {/* Floating 3D Depth Pill — Top Right */}
+            <div className="animate-float-slow pointer-events-none absolute -right-2 -top-5 z-20 hidden items-center gap-2 rounded-xl border border-[#84CC16]/50 bg-[#09090B]/95 px-3.5 py-2 text-[11px] font-bold text-[#A3E635] shadow-[0_10px_30px_rgba(0,0,0,0.8)] backdrop-blur-md sm:flex">
+              <span className="h-2 w-2 animate-ping rounded-full bg-[#84CC16]" />
+              <span>Real-Time SSE Streaming</span>
+            </div>
 
-              {/* Top Bar + Workspace Switcher */}
+            {/* Floating 3D Depth Pill — Bottom Left */}
+            <div className="animate-float-delayed pointer-events-none absolute -bottom-4 -left-3 z-20 hidden items-center gap-2 rounded-xl border border-zinc-700 bg-[#09090B]/95 px-3.5 py-2 text-[11px] font-semibold text-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.85)] backdrop-blur-md sm:flex">
+              <Lock className="h-3.5 w-3.5 text-[#84CC16]" />
+              <span>100% Isolated Client Vault</span>
+            </div>
+
+            <Spotlight3DCard highlighted={true} maxTilt={4}>
+              {/* Window Top Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 bg-[#09090B]/90 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
                   <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
                   <span className="h-2.5 w-2.5 rounded-full bg-[#84CC16]" />
                   <span className="ml-1.5 text-xs font-semibold text-zinc-300">
-                    Interactive Live Preview
+                    Interactive 3D Command Stage
                   </span>
                 </div>
 
-                {/* Switch Between Two Client Accounts */}
+                {/* Switch Client Workspace */}
                 <div className="inline-flex items-center rounded-lg border border-zinc-800 bg-[#121215] p-0.5">
                   <button
                     type="button"
@@ -283,7 +306,7 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
                 </div>
               </div>
 
-              {/* Specialist & AI Brain Controls */}
+              {/* Controls Bar */}
               <div className="grid grid-cols-1 gap-2.5 border-b border-zinc-800/80 bg-[#0D0D10] px-4 py-3 sm:grid-cols-2">
                 <div>
                   <span className="mb-1.5 block text-[11px] font-semibold text-zinc-400">
@@ -344,7 +367,7 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
                 </div>
               </div>
 
-              {/* Simulated Live Output */}
+              {/* Live Output */}
               <div className="space-y-4 p-4 sm:p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800 bg-[#09090B] px-3 py-2 text-[11px]">
                   <span className="text-zinc-400">
@@ -355,12 +378,10 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
                   </span>
                 </div>
 
-                {/* User Inquiry */}
                 <div className="ml-auto max-w-[92%] rounded-2xl rounded-tr-sm border border-[#84CC16]/30 bg-[#84CC16]/10 px-4 py-3 text-xs leading-relaxed text-zinc-100">
                   {activeWs.prompt}
                 </div>
 
-                {/* AI Result */}
                 <div className="rounded-2xl rounded-tl-sm border border-zinc-800 bg-[#09090B]/95 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
                     <div className="flex items-center gap-2">
@@ -399,8 +420,23 @@ export function HeroSection({ onOpenBookCall }: HeroSectionProps) {
                   </ul>
                 </div>
               </div>
-            </div>
+            </Spotlight3DCard>
           </div>
+        </div>
+      </div>
+
+      {/* Infinite Kinetic AI Ecosystem Ticker */}
+      <div className="relative overflow-hidden border-t border-zinc-800/80 bg-[#0B0B0E]/90 py-3.5">
+        <div className="animate-marquee flex items-center gap-8">
+          {[...MARQUEE_ITEMS, ...MARQUEE_ITEMS].map((item, idx) => (
+            <div
+              key={`${item}-${idx}`}
+              className="flex shrink-0 items-center gap-2.5 text-xs font-semibold text-zinc-400"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#84CC16]" />
+              <span>{item}</span>
+            </div>
+          ))}
         </div>
       </div>
     </section>
