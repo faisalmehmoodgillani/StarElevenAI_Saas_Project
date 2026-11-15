@@ -19,6 +19,8 @@ from backend.services.plan_guard import (
     record_workspace_token_usage,
 )
 
+from backend.middleware.error_logger import classify_and_log_error
+
 router = APIRouter(tags=["Multi-Agent Chat"])
 
 
@@ -83,6 +85,7 @@ async def chat_endpoint(payload: ScopedChatRequest, db: Session = Depends(get_db
     except HTTPException:
         raise
     except Exception as e:
+        classify_and_log_error(e, workspace_id=payload.workspace_id, provider=resolved_provider)
         raise HTTPException(status_code=500, detail=f"Agent execution error: {str(e)}")
 
 
@@ -171,6 +174,7 @@ async def chat_stream_endpoint(payload: ScopedChatRequest, db: Session = Depends
             )
             yield "data: [DONE]\n\n"
         except Exception as e:
+            classify_and_log_error(e, workspace_id=payload.workspace_id, provider=resolved_provider)
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
 
     return StreamingResponse(

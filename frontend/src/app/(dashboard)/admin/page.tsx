@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -154,6 +155,14 @@ interface PromoCodeItem {
   is_active: boolean;
   created_at?: string | null;
 }
+
+<Link
+  href="/admin/health"
+  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 text-xs font-bold text-amber-200 transition hover:bg-amber-500/25"
+>
+  <Activity className="h-3.5 w-3.5 text-amber-400" />
+  Health Diagnostics
+</Link>
 
 function isSuperAdminAuthorized(email?: string | null): boolean {
   const configured = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || "";

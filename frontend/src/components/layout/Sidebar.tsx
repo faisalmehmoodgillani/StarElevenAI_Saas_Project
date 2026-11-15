@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -240,6 +241,21 @@ export function Sidebar() {
                 </p>
               )}
               <nav className="space-y-1">
+                <Link
+                  href="/admin/health"
+                  onClick={() => isMobile && setIsMobileSidebarOpen(false)}
+                  title={isCollapsed ? "Health Diagnostics" : undefined}
+                  className={`group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                    pathname === "/admin/health"
+                      ? "border border-[#84CC16]/35 bg-[#84CC16]/15 text-[#A3E635]"
+                      : "border border-transparent text-zinc-400 hover:bg-[#18181B] hover:text-zinc-100"
+                  } ${isCollapsed ? "justify-center px-2" : ""}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Activity className="h-4 w-4 shrink-0 text-amber-400" />
+                    {!isCollapsed && <span>Health Diagnostics</span>}
+                  </div>
+                </Link>
                 <Link
                   href="/admin"
                   onClick={() => isMobile && setIsMobileSidebarOpen(false)}
