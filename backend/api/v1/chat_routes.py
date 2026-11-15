@@ -7,12 +7,11 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.agents.async_checkpointer import get_async_checkpointer
 from backend.agents.scoped_graph import (
     build_scoped_execution_graph,
     detect_missing_tool_intent,
 )
-from backend.database.checkpointer import delete_thread_checkpoints
+from backend.database.checkpointer import delete_thread_checkpoints, get_async_checkpointer
 from backend.database.connection import get_db
 from backend.schemas.chat_schema import ChatResponse, ThreadHistoryResponse
 from backend.services.plan_guard import (

@@ -10,7 +10,7 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from backend.agents.async_checkpointer import get_async_checkpointer
+from backend.database.checkpointer import get_async_checkpointer
 from backend.database.models import ChatThreadScope, WorkspaceAgent
 from backend.services.integration_vault import list_workspace_connectors
 from backend.services.llm_factory import get_llm_instance

@@ -87,3 +87,76 @@ def delete_thread_checkpoints(workspace_id: str, thread_id: str) -> dict:
             "checkpoint_writes": writes_deleted,
         },
     }
+
+# --- Module 05 Async Checkpointer (Consolidated in backend/database/checkpointer.py) ---
+_async_pool = None
+_async_checkpointer = None
+_async_memory_fallback = None
+
+
+def _get_async_db_uri() -> str | None:
+    import os
+    from urllib.parse import quote_plus
+
+    raw_url = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("SUPABASE_DB_URL")
+        or os.getenv("POSTGRES_URL")
+        or ""
+    ).strip()
+    if raw_url:
+        if raw_url.startswith("postgresql+psycopg://"):
+            return raw_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        if raw_url.startswith("postgresql+asyncpg://"):
+            return raw_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        return raw_url
+
+    host = os.getenv("DB_HOST")
+    user = os.getenv("DB_USER")
+    password = os.getenv("DB_PASSWORD")
+    dbname = os.getenv("DB_NAME", "postgres")
+    port = os.getenv("DB_PORT", "5432")
+    if host and user and password:
+        return f"postgresql://{user}:{quote_plus(password)}@{host}:{port}/{dbname}"
+    return None
+
+
+async def get_async_checkpointer():
+    """
+    Returns an initialized AsyncPostgresSaver backed by psycopg AsyncConnectionPool
+    for non-blocking LangGraph streaming & HITL interrupts.
+    """
+    global _async_pool, _async_checkpointer, _async_memory_fallback
+
+    if _async_checkpointer is not None:
+        return _async_checkpointer
+
+    db_uri = _get_async_db_uri()
+    if not db_uri:
+        if _async_memory_fallback is None:
+            from langgraph.checkpoint.memory import MemorySaver
+            _async_memory_fallback = MemorySaver()
+        return _async_memory_fallback
+
+    try:
+        from psycopg_pool import AsyncConnectionPool
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        if _async_pool is None:
+            _async_pool = AsyncConnectionPool(
+                conninfo=db_uri,
+                max_size=10,
+                open=False,
+                kwargs={"autocommit": True, "prepare_threshold": 0},
+            )
+            await _async_pool.open()
+
+        saver = AsyncPostgresSaver(_async_pool)
+        await saver.setup()
+        _async_checkpointer = saver
+        return _async_checkpointer
+    except Exception:
+        if _async_memory_fallback is None:
+            from langgraph.checkpoint.memory import MemorySaver
+            _async_memory_fallback = MemorySaver()
+        return _async_memory_fallback
