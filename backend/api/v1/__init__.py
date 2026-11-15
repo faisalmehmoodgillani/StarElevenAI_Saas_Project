@@ -7,6 +7,7 @@ from backend.api.v1.team_routes import router as team_router
 from backend.api.v1.admin_routes import router as admin_router
 from backend.api.v1.booking_routes import router as booking_routes
 from backend.api.v1.connectors_routes import router as connectors_router
+from backend.api.v1.agents_studio_routes import router as agents_studio_router
 
 
 api_v1_router = APIRouter(prefix="/api/v1")
@@ -19,3 +20,4 @@ api_v1_router.include_router(team_router)
 api_v1_router.include_router(admin_router)
 api_v1_router.include_router(booking_routes)
 api_v1_router.include_router(connectors_router)
+api_v1_router.include_router(agents_studio_router)

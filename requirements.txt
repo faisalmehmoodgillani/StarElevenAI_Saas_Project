@@ -25,11 +25,11 @@ langchain-groq
 langchain-openai
 langchain-anthropic
 
-# Model Context Protocol (MCP) & Tools
+# Model Context Protocol (MCP)
 mcp
 langchain-mcp-adapters
 nest-asyncio
-tavily-python
+
 
 # Document Processing & RAG Vectorstore
 chromadb
@@ -42,3 +42,7 @@ langsmith
 # Security & Authentication
 cryptography
 pyjwt
+
+# Tools
+tavily-python
+ddgs
