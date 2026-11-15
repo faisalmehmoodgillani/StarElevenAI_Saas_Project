@@ -1,20 +1,20 @@
 import json
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.agents.router import build_agent_graph
+from backend.agents.async_checkpointer import get_async_checkpointer
+from backend.agents.scoped_graph import (
+    build_scoped_execution_graph,
+    detect_missing_tool_intent,
+)
+from backend.database.checkpointer import delete_thread_checkpoints
 from backend.database.connection import get_db
-from backend.schemas.chat_schema import (
-    ChatRequest,
-    ChatResponse,
-    ThreadHistoryResponse,
-)
-from backend.database.checkpointer import (
-    get_postgres_checkpointer,
-    delete_thread_checkpoints,
-)
+from backend.schemas.chat_schema import ChatResponse, ThreadHistoryResponse
 from backend.services.plan_guard import (
     enforce_workspace_llm_access,
     record_workspace_token_usage,
@@ -22,23 +22,35 @@ from backend.services.plan_guard import (
 
 router = APIRouter(tags=["Multi-Agent Chat"])
 
-# Compile LangGraph workflow once with Supabase PostgreSQL checkpointer
-agent_graph = build_agent_graph(use_checkpointer=True)
+
+class ScopedChatRequest(BaseModel):
+    message: str
+    thread_id: str
+    workspace_id: str
+    user_id: str
+    provider: str = "groq"
+    model_name: str = "llama-3.3-70b-versatile"
+    encrypted_api_key: Optional[str] = None
+    pinned_agent_ids: Optional[List[str]] = None
+    pinned_tool_ids: Optional[List[str]] = None
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
-    """
-    Executes the multi-agent LangGraph workflow synchronously and returns
-    the final response along with the selected specialist agent.
-    """
+async def chat_endpoint(payload: ScopedChatRequest, db: Session = Depends(get_db)):
     access = enforce_workspace_llm_access(
-    db, payload.workspace_id, payload.provider, payload.user_id
-)
+        db, payload.workspace_id, payload.provider, payload.user_id
+    )
     resolved_encrypted_key = payload.encrypted_api_key or access.get("encrypted_api_key")
     resolved_provider = access.get("resolved_provider") or payload.provider
 
     try:
+        graph, _ = await build_scoped_execution_graph(
+            db=db,
+            workspace_id=payload.workspace_id,
+            thread_id=payload.thread_id,
+            override_agent_ids=payload.pinned_agent_ids,
+            override_tool_ids=payload.pinned_tool_ids,
+        )
         scoped_thread_id = f"{payload.workspace_id}:{payload.thread_id}"
         config = {"configurable": {"thread_id": scoped_thread_id}}
 
@@ -49,12 +61,14 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
             "provider": resolved_provider,
             "model_name": payload.model_name,
             "encrypted_api_key": resolved_encrypted_key,
-            "next_node": "",
+            "active_agent_slug": "",
+            "active_agent_name": "",
         }
 
-        final_state = agent_graph.invoke(initial_state, config=config)
+        final_state = await graph.ainvoke(initial_state, config=config)
         messages = final_state.get("messages", [])
         final_reply = messages[-1].content if messages else "No response generated."
+
         record_workspace_token_usage(
             db,
             payload.workspace_id,
@@ -64,7 +78,7 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
         return ChatResponse(
             thread_id=payload.thread_id,
             workspace_id=payload.workspace_id,
-            routed_agent=final_state.get("next_node", "general_agent"),
+            routed_agent=final_state.get("active_agent_slug") or "general_copilot",
             response=str(final_reply),
         )
     except HTTPException:
@@ -74,17 +88,26 @@ def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/chat/stream")
-def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
+async def chat_stream_endpoint(payload: ScopedChatRequest, db: Session = Depends(get_db)):
     """
-    Streams agent routing status and LLM response tokens in real time
-    using Server-Sent Events (SSE).
+    Non-blocking async SSE stream supporting user-pinned agents/tools,
+    missing-tool advisor hints, tool execution telemetry, and HITL interrupts.
     """
     access = enforce_workspace_llm_access(
-    db, payload.workspace_id, payload.provider, payload.user_id
-)
+        db, payload.workspace_id, payload.provider, payload.user_id
+    )
     resolved_encrypted_key = payload.encrypted_api_key or access.get("encrypted_api_key")
     resolved_provider = access.get("resolved_provider") or payload.provider
 
+    graph, connectors_catalog = await build_scoped_execution_graph(
+        db=db,
+        workspace_id=payload.workspace_id,
+        thread_id=payload.thread_id,
+        override_agent_ids=payload.pinned_agent_ids,
+        override_tool_ids=payload.pinned_tool_ids,
+    )
+
+    missing_tool_hint = detect_missing_tool_intent(payload.message, connectors_catalog)
     scoped_thread_id = f"{payload.workspace_id}:{payload.thread_id}"
     config = {"configurable": {"thread_id": scoped_thread_id}}
 
@@ -95,53 +118,61 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
         "provider": resolved_provider,
         "model_name": payload.model_name,
         "encrypted_api_key": resolved_encrypted_key,
-        "next_node": "",
+        "active_agent_slug": "",
+        "active_agent_name": "",
     }
 
-    def event_generator():
-        announced_agent = None
+    async def event_generator():
+        announced_node = None
         streamed_chunks: list[str] = []
         try:
-            for msg_chunk, metadata in agent_graph.stream(
+            if missing_tool_hint:
+                yield f"data: {json.dumps({'type': 'missing_tool', 'connector': missing_tool_hint})}\n\n"
+
+            async for msg_chunk, metadata in graph.astream(
                 initial_state,
                 config=config,
                 stream_mode="messages",
             ):
                 node_name = metadata.get("langgraph_node", "")
-
-                # Skip internal structured JSON output from the intent router node
-                if node_name == "router":
+                if node_name == "coordinator":
                     continue
 
-                # Notify client once when a specialist agent starts executing
-                if node_name and node_name != announced_agent:
-                    announced_agent = node_name
-                    status_event = json.dumps({"type": "status", "agent": node_name})
-                    yield f"data: {status_event}\n\n"
+                if node_name and node_name != announced_node:
+                    announced_node = node_name
+                    yield f"data: {json.dumps({'type': 'status', 'agent': node_name})}\n\n"
 
-                # Stream only AI assistant text chunks
                 msg_type = getattr(msg_chunk, "type", "")
                 content = getattr(msg_chunk, "content", "")
+
+                # Emit tool call indicators so UI can display live tool execution badges
+                tool_calls = getattr(msg_chunk, "tool_calls", None) or []
+                for tc in tool_calls:
+                    if tc.get("name"):
+                        yield f"data: {json.dumps({'type': 'tool_call', 'tool': tc['name']})}\n\n"
+
                 if msg_type in ("AIMessageChunk", "ai") and content:
-                    token_event = json.dumps({"type": "token", "content": content})
-                    yield f"data: {token_event}\n\n"
-                    msg_type = getattr(msg_chunk, "type", "")
-                content = getattr(msg_chunk, "content", "")
-                if msg_type in ("AIMessageChunk", "ai") and content:
-                    streamed_chunks.append(str(content))
-                    token_event = json.dumps({"type": "token", "content": content})
-                    yield f"data: {token_event}\n\n"
+                    text_part = str(content)
+                    streamed_chunks.append(text_part)
+                    yield f"data: {json.dumps({'type': 'token', 'content': text_part})}\n\n"
+
+            # Check if graph paused on a LangGraph HITL interrupt()
+            state_snapshot = await graph.aget_state(config)
+            if state_snapshot and state_snapshot.tasks:
+                for task in state_snapshot.tasks:
+                    interrupts = getattr(task, "interrupts", None) or []
+                    for intr in interrupts:
+                        intr_payload = getattr(intr, "value", intr)
+                        yield f"data: {json.dumps({'type': 'hitl_interrupt', 'interrupt': intr_payload})}\n\n"
 
             record_workspace_token_usage(
                 db,
                 payload.workspace_id,
                 fallback_text=f"{payload.message}\n{''.join(streamed_chunks)}",
             )
-
             yield "data: [DONE]\n\n"
         except Exception as e:
-            error_event = json.dumps({"type": "error", "detail": str(e)})
-            yield f"data: {error_event}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -154,12 +185,17 @@ def chat_stream_endpoint(payload: ChatRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/threads/{workspace_id}/{thread_id}/history", response_model=ThreadHistoryResponse)
-def get_thread_history(workspace_id: str, thread_id: str):
-    """Fetches persisted conversation messages from Supabase PostgreSQL checkpointer."""
+async def get_thread_history(workspace_id: str, thread_id: str):
+    """Fetches persisted conversation messages asynchronously from PostgreSQL checkpointer."""
     try:
+        from langgraph.graph import StateGraph
+        from backend.agents.scoped_graph import ScopedAgentState
+
+        checkpointer = await get_async_checkpointer()
+        dummy = StateGraph(ScopedAgentState).compile(checkpointer=checkpointer)
         scoped_thread_id = f"{workspace_id}:{thread_id}"
         config = {"configurable": {"thread_id": scoped_thread_id}}
-        state_snapshot = agent_graph.get_state(config)
+        state_snapshot = await dummy.aget_state(config)
 
         if not state_snapshot or not state_snapshot.values:
             return ThreadHistoryResponse(
@@ -176,14 +212,14 @@ def get_thread_history(workspace_id: str, thread_id: str):
                 formatted_messages.append(
                     {
                         "role": "user" if msg_type == "human" else "assistant",
-                        "content": msg.content,
+                        "content": str(msg.content),
                     }
                 )
 
         return ThreadHistoryResponse(
             thread_id=thread_id,
             workspace_id=workspace_id,
-            last_routed_agent=state_snapshot.values.get("next_node"),
+            last_routed_agent=state_snapshot.values.get("active_agent_slug"),
             messages=formatted_messages,
         )
     except Exception as e:
@@ -192,13 +228,11 @@ def get_thread_history(workspace_id: str, thread_id: str):
 
 @router.delete("/threads/{workspace_id}/{thread_id}")
 def delete_conversation_thread(workspace_id: str, thread_id: str):
-    """Deletes all Supabase LangGraph checkpoint records for a workspace thread."""
     try:
-        result = delete_thread_checkpoints(
+        return delete_thread_checkpoints(
             workspace_id=workspace_id,
             thread_id=thread_id,
         )
-        return result
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
