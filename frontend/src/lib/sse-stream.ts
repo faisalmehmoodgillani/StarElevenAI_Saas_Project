@@ -1,8 +1,17 @@
 import { API_BASE_URL } from "@/lib/api";
 import { ChatPayload } from "@/types/saas";
+import { HitlInterruptPayload, MissingToolHint } from "@/types/agents";
+
+export interface ScopedChatPayload extends ChatPayload {
+  pinned_agent_ids?: string[];
+  pinned_tool_ids?: string[];
+}
 
 export interface StreamHandlers {
   onAgentStatus?: (agentName: string) => void;
+  onToolCall?: (toolName: string) => void;
+  onMissingTool?: (hint: MissingToolHint) => void;
+  onHitlInterrupt?: (interrupt: HitlInterruptPayload) => void;
   onToken: (token: string) => void;
   onComplete?: () => void;
   onError?: (errorMessage: string) => void;
@@ -18,19 +27,24 @@ function resolveChatStreamUrl(): string {
     "http://127.0.0.1:8000"
   ).trim();
 
-  // Normalize host and always target exact /api/v1/chat/stream route
   const cleanHost = rawBase.replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
   return `${cleanHost}/api/v1/chat/stream`;
 }
 
-/**
- * Streams real-time agent routing events and LLM tokens from FastAPI POST /api/v1/chat/stream.
- */
 export async function streamAgentChat(
-  payload: ChatPayload,
+  payload: ScopedChatPayload,
   handlers: StreamHandlers
 ): Promise<void> {
-  const { onAgentStatus, onToken, onComplete, onError, signal } = handlers;
+  const {
+    onAgentStatus,
+    onToolCall,
+    onMissingTool,
+    onHitlInterrupt,
+    onToken,
+    onComplete,
+    onError,
+    signal,
+  } = handlers;
   const streamUrl = resolveChatStreamUrl();
 
   try {
@@ -91,6 +105,12 @@ export async function streamAgentChat(
 
           if (parsed.type === "status" && parsed.agent) {
             onAgentStatus?.(parsed.agent);
+          } else if (parsed.type === "tool_call" && parsed.tool) {
+            onToolCall?.(parsed.tool);
+          } else if (parsed.type === "missing_tool" && parsed.connector) {
+            onMissingTool?.(parsed.connector as MissingToolHint);
+          } else if (parsed.type === "hitl_interrupt" && parsed.interrupt) {
+            onHitlInterrupt?.(parsed.interrupt as HitlInterruptPayload);
           } else if (
             parsed.type === "token" &&
             typeof parsed.content === "string"

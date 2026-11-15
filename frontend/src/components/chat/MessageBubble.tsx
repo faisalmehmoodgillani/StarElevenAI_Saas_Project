@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Check,
   Copy,
@@ -8,21 +9,27 @@ import {
   User,
   Zap,
   AlertTriangle,
+  Wrench,
+  Plug,
+  ArrowUpRight,
 } from "lucide-react";
 import { ChatMessage } from "@/types/chat";
 import { AgentTelemetryBadge } from "./AgentTelemetryBadge";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { HitlApprovalCard } from "./HitlApprovalCard";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   isLastAssistant?: boolean;
   onRegenerate?: () => void;
+  onResolveHitl?: (messageId: string, approved: boolean) => Promise<void>;
 }
 
 export function MessageBubble({
   message,
   isLastAssistant = false,
   onRegenerate,
+  onResolveHitl,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -74,6 +81,45 @@ export function MessageBubble({
           />
         )}
 
+        {/* Executed Tools Telemetry Chips */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {message.toolCalls.map((toolName, i) => (
+              <span
+                key={`${toolName}_${i}`}
+                className="inline-flex items-center gap-1 rounded-md border border-[#84CC16]/30 bg-[#84CC16]/10 px-2 py-0.5 font-mono text-[10px] text-[#A3E635]"
+              >
+                <Wrench className="h-2.5 w-2.5" />
+                <span>Called: {toolName}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Missing-Tool Advisor Banner */}
+        {message.missingTool && (
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-200">
+            <div className="flex items-start gap-2">
+              <Plug className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <div>
+                <p className="font-bold text-amber-300">
+                  {message.missingTool.connector_name} Not Connected
+                </p>
+                <p className="mt-0.5 text-[11px] text-amber-200/85">
+                  {message.missingTool.advice}
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/agents?tab=connectors"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-amber-400 px-3 py-1.5 text-[11px] font-bold text-[#09090B] transition hover:bg-amber-300"
+            >
+              <span>Connect Now</span>
+              <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          </div>
+        )}
+
         <div
           className={`rounded-2xl rounded-tl-sm border px-4 py-3.5 transition-colors ${
             message.isError
@@ -86,11 +132,20 @@ export function MessageBubble({
               content={message.content}
               isStreaming={message.isStreaming}
             />
-          ) : (
+          ) : !message.hitlInterrupt ? (
             <div className="flex items-center gap-2 py-1 font-mono text-xs text-zinc-400">
               <span className="h-2 w-2 animate-ping rounded-full bg-[#A3E635]" />
               <span>Synthesizing agent response...</span>
             </div>
+          ) : null}
+
+          {/* Human-in-the-Loop Approval Card */}
+          {message.hitlInterrupt && onResolveHitl && (
+            <HitlApprovalCard
+              interrupt={message.hitlInterrupt}
+              resolution={message.hitlResolution}
+              onDecision={(approved) => onResolveHitl(message.id, approved)}
+            />
           )}
 
           {/* Action Footer */}

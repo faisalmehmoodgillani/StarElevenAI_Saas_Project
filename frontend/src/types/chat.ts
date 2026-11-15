@@ -1,9 +1,6 @@
-export type AgentNodeType =
-  | "router"
-  | "research_agent"
-  | "crm_agent"
-  | "general_agent"
-  | string;
+import { HitlInterruptPayload, MissingToolHint } from "./agents";
+
+export type AgentNodeType = string;
 
 export interface ChatMessage {
   id: string;
@@ -13,9 +10,13 @@ export interface ChatMessage {
   routedAgent?: AgentNodeType;
   provider?: string;
   modelName?: string;
-  latencyMs?: number;
   isStreaming?: boolean;
   isError?: boolean;
+  latencyMs?: number;
+  toolCalls?: string[];
+  missingTool?: MissingToolHint | null;
+  hitlInterrupt?: HitlInterruptPayload | null;
+  hitlResolution?: "approved" | "rejected" | null;
 }
 
 export interface ChatThreadMeta {
@@ -23,8 +24,8 @@ export interface ChatThreadMeta {
   workspaceId: string;
   title: string;
   lastMessagePreview: string;
-  lastRoutedAgent?: AgentNodeType;
   messageCount: number;
-  pinned?: boolean;
   updatedAt: string;
+  lastRoutedAgent?: AgentNodeType;
+  pinned?: boolean;
 }

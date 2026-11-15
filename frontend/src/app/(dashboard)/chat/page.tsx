@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   PanelLeftOpen,
   Sparkles,
@@ -13,11 +14,13 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useWorkspace } from "@/context/WorkspaceContext";
-import { starElevenApi } from "@/lib/api";
+import { API_BASE_URL, starElevenApi } from "@/lib/api";
 import { streamAgentChat } from "@/lib/sse-stream";
 import { LLMProvider } from "@/types/saas";
 import { AgentNodeType, ChatMessage, ChatThreadMeta } from "@/types/chat";
+import { WorkspaceAgentItem, WorkspaceConnector } from "@/types/agents";
 import { ThreadSidebar } from "@/components/chat/ThreadSidebar";
+import { ThreadPinningBar } from "@/components/chat/ThreadPinningBar";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 
@@ -46,7 +49,7 @@ const STARTER_MISSIONS = [
     title: "Live Web Market Intelligence",
     prompt:
       "Search the web for the latest AI SaaS agency automation trends in 2026 and summarize top 3 opportunities.",
-    agentHint: "Research Agent • Tavily Search",
+    agentHint: "DuckDuckGo / Tavily Search",
     icon: <Globe className="h-4 w-4 text-amber-400" />,
   },
   {
@@ -67,15 +70,16 @@ const STARTER_MISSIONS = [
     title: "Multi-Agent Architecture Review",
     prompt:
       "Design a high-converting inbound lead qualification workflow using intent routing and human-in-the-loop approvals.",
-    agentHint: "Auto Meta-Router",
+    agentHint: "Scoped Multi-Agent",
     icon: <Sparkles className="h-4 w-4 text-purple-400" />,
   },
 ];
 
 export default function ChatCommandCenterPage() {
   const workspaceCtx = useWorkspace() as any;
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-  // Resolve active tenant context safely from Module 03 WorkspaceContext
   const workspaceId: string =
     workspaceCtx?.activeWorkspace?.id ||
     workspaceCtx?.currentWorkspace?.id ||
@@ -117,17 +121,144 @@ export default function ChatCommandCenterPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [dbSyncNotice, setDbSyncNotice] = useState<string | null>(null);
 
+  // Scoped Agents, Connectors & Per-Thread Pinning State
+  const [workspaceAgents, setWorkspaceAgents] = useState<WorkspaceAgentItem[]>(
+    []
+  );
+  const [workspaceConnectors, setWorkspaceConnectors] = useState<
+    WorkspaceConnector[]
+  >([]);
+  const [pinnedAgentIds, setPinnedAgentIds] = useState<string[]>([]);
+  const [pinnedToolIds, setPinnedToolIds] = useState<string[]>([]);
+
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const storageKey = `stareleven_threads_${workspaceId}`;
 
-  // Scroll smoothly to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Persist thread metadata list per workspace
+  // Fetch workspace agents & connectors for the Pinning Bar
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [agRes, connRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/v1/agents-studio/${workspaceId}`),
+          fetch(`${API_BASE_URL}/api/v1/connectors/catalog/${workspaceId}`),
+        ]);
+        if (!cancelled && agRes.ok) {
+          const agData = await agRes.json();
+          setWorkspaceAgents(agData.agents || []);
+        }
+        if (!cancelled && connRes.ok) {
+          const connData = await connRes.json();
+          setWorkspaceConnectors(connData.connectors || []);
+        }
+      } catch {
+        // Ignore silent fetch errors
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  const persistThreadScope = useCallback(
+    async (
+      targetThreadId: string,
+      nextAgents: string[],
+      nextTools: string[]
+    ) => {
+      if (!workspaceId || !targetThreadId) return;
+      try {
+        await fetch(
+          `${API_BASE_URL}/api/v1/thread-scope/${encodeURIComponent(
+            workspaceId
+          )}/${encodeURIComponent(targetThreadId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              pinned_agent_ids: nextAgents,
+              pinned_tool_ids: nextTools,
+            }),
+          }
+        );
+      } catch {
+        // Ignore silent sync retry
+      }
+    },
+    [workspaceId]
+  );
+
+  // Load saved thread scope when activeThreadId changes
+  useEffect(() => {
+    if (!workspaceId || !activeThreadId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/v1/thread-scope/${encodeURIComponent(
+            workspaceId
+          )}/${encodeURIComponent(activeThreadId)}`
+        );
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          const loadedAgents: string[] = data.pinned_agent_ids || [];
+          const loadedTools: string[] = data.pinned_tool_ids || [];
+
+          const pinFromUrl = searchParams?.get("pinAgent");
+          if (pinFromUrl && !loadedAgents.includes(pinFromUrl)) {
+            const merged = [...loadedAgents, pinFromUrl];
+            setPinnedAgentIds(merged);
+            setPinnedToolIds(loadedTools);
+            void persistThreadScope(activeThreadId, merged, loadedTools);
+            router.replace("/chat");
+          } else {
+            setPinnedAgentIds(loadedAgents);
+            setPinnedToolIds(loadedTools);
+          }
+        }
+      } catch {
+        setPinnedAgentIds([]);
+        setPinnedToolIds([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, activeThreadId, searchParams, router, persistThreadScope]);
+
+  const handleTogglePinnedAgent = (agentId: string) => {
+    const next = pinnedAgentIds.includes(agentId)
+      ? pinnedAgentIds.filter((id) => id !== agentId)
+      : [...pinnedAgentIds, agentId];
+    setPinnedAgentIds(next);
+    void persistThreadScope(activeThreadId, next, pinnedToolIds);
+  };
+
+  const handleTogglePinnedTool = (connectorId: string) => {
+    const next = pinnedToolIds.includes(connectorId)
+      ? pinnedToolIds.filter((id) => id !== connectorId)
+      : [...pinnedToolIds, connectorId];
+    setPinnedToolIds(next);
+    void persistThreadScope(activeThreadId, pinnedAgentIds, next);
+  };
+
+  const handleClearPinnedScope = () => {
+    setPinnedAgentIds([]);
+    setPinnedToolIds([]);
+    void persistThreadScope(activeThreadId, [], []);
+  };
+
   const saveThreadsToStorage = useCallback(
     (updatedThreads: ChatThreadMeta[]) => {
       setThreads(updatedThreads);
@@ -138,7 +269,6 @@ export default function ChatCommandCenterPage() {
     [storageKey]
   );
 
-  // Load persisted messages from Supabase LangGraph Checkpointer
   const loadThreadMessages = useCallback(
     async (targetThreadId: string) => {
       if (!workspaceId || !targetThreadId) return;
@@ -164,7 +294,6 @@ export default function ChatCommandCenterPage() {
           setMessages([]);
         }
       } catch {
-        // Fresh thread with no checkpoint yet
         setMessages([]);
       } finally {
         setIsLoadingHistory(false);
@@ -173,7 +302,6 @@ export default function ChatCommandCenterPage() {
     [workspaceId]
   );
 
-  // Initialize workspace threads when workspaceId changes
   useEffect(() => {
     if (typeof window === "undefined" || !workspaceId) return;
 
@@ -269,7 +397,6 @@ export default function ChatCommandCenterPage() {
       }
     }
 
-    // Hard-delete LangGraph checkpoints from Supabase PostgreSQL
     try {
       setDbSyncNotice("Purging thread from Supabase...");
       await starElevenApi.deleteThread(workspaceId, threadId);
@@ -293,6 +420,43 @@ export default function ChatCommandCenterPage() {
       t.id === threadId ? { ...t, pinned: !t.pinned } : t
     );
     saveThreadsToStorage(updated);
+  };
+
+  // Resume LangGraph execution after HITL Approve / Reject
+  const handleResolveHitl = async (messageId: string, approved: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/hitl/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          thread_id: activeThreadId,
+          approved,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const followUpText =
+        data.response ||
+        (approved
+          ? "Action approved and executed."
+          : "Action rejected by user.");
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                hitlResolution: approved ? "approved" : "rejected",
+                content: m.content
+                  ? `${m.content}\n\n${followUpText}`
+                  : followUpText,
+              }
+            : m
+        )
+      );
+    } catch (err) {
+      console.error("Failed to resume HITL action:", err);
+    }
   };
 
   const handleSendMessage = async (promptText: string) => {
@@ -326,6 +490,7 @@ export default function ChatCommandCenterPage() {
       provider,
       modelName,
       isStreaming: true,
+      toolCalls: [],
     };
 
     const nextMessages = [...messages, userMsg, assistantPlaceholder];
@@ -339,7 +504,6 @@ export default function ChatCommandCenterPage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Update thread metadata immediately
     const autoTitle =
       promptText.length > 38 ? `${promptText.slice(0, 38)}...` : promptText;
 
@@ -367,6 +531,8 @@ export default function ChatCommandCenterPage() {
         user_id: userId,
         provider,
         model_name: modelName,
+        pinned_agent_ids: pinnedAgentIds,
+        pinned_tool_ids: pinnedToolIds,
       },
       {
         signal: controller.signal,
@@ -375,6 +541,32 @@ export default function ChatCommandCenterPage() {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId ? { ...m, routedAgent: agentName } : m
+            )
+          );
+        },
+        onToolCall: (toolName) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const existing = m.toolCalls || [];
+              if (existing.includes(toolName)) return m;
+              return { ...m, toolCalls: [...existing, toolName] };
+            })
+          );
+        },
+        onMissingTool: (hint) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId ? { ...m, missingTool: hint } : m
+            )
+          );
+        },
+        onHitlInterrupt: (interruptPayload) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, hitlInterrupt: interruptPayload, isStreaming: false }
+                : m
             )
           );
         },
@@ -404,7 +596,6 @@ export default function ChatCommandCenterPage() {
             )
           );
 
-          // Sync last routed agent & preview in sidebar
           setThreads((prevThreads) => {
             const synced = prevThreads.map((t) =>
               t.id === currentThreadId
@@ -454,7 +645,6 @@ export default function ChatCommandCenterPage() {
       .find((m) => m.role === "user");
     if (!lastUserMessage) return;
 
-    // Remove trailing assistant response before re-running
     setMessages((prev) => prev.slice(0, -1));
     handleSendMessage(lastUserMessage.content);
   };
@@ -514,6 +704,17 @@ export default function ChatCommandCenterPage() {
           </div>
         </div>
 
+        {/* Per-Thread Unlimited Agent & Tool Pinning Bar */}
+        <ThreadPinningBar
+          agents={workspaceAgents}
+          connectors={workspaceConnectors}
+          pinnedAgentIds={pinnedAgentIds}
+          pinnedToolIds={pinnedToolIds}
+          onToggleAgent={handleTogglePinnedAgent}
+          onToggleTool={handleTogglePinnedTool}
+          onClearAll={handleClearPinnedScope}
+        />
+
         {/* Scrollable Message Feed */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
           {isLoadingHistory ? (
@@ -524,7 +725,6 @@ export default function ChatCommandCenterPage() {
               </p>
             </div>
           ) : messages.length === 0 ? (
-            /* Command Center Empty State */
             <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#84CC16]/40 bg-[#84CC16]/15 text-[#A3E635] shadow-[0_0_30px_rgba(132,204,22,0.2)]">
                 <Sparkles className="h-7 w-7" />
@@ -537,12 +737,10 @@ export default function ChatCommandCenterPage() {
                 <span className="font-semibold text-zinc-200">
                   {workspaceName}
                 </span>
-                . Your prompts are dynamically routed across Deep Research
-                (Tavily), CRM Intelligence (Supabase), and Operations Copilots
-                with persistent state memory.
+                . Pin your custom Agents &amp; Tools above, or launch a mission
+                below with persistent state memory and HITL safeguards.
               </p>
 
-              {/* Quick-Launch Mission Cards */}
               <div className="mt-7 grid w-full grid-cols-1 gap-3 text-left sm:grid-cols-2">
                 {STARTER_MISSIONS.map((mission) => (
                   <button
@@ -580,6 +778,7 @@ export default function ChatCommandCenterPage() {
                     message={msg}
                     isLastAssistant={isLastAssistant}
                     onRegenerate={handleRegenerateLast}
+                    onResolveHitl={handleResolveHitl}
                   />
                 );
               })}
