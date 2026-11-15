@@ -127,42 +127,76 @@ def _notify_admin_and_client(payload: CreateBookingRequest) -> None:
         else "No additional notes provided."
     )
 
+    # 1. Mobile-Responsive Admin Alert Email (Zero Horizontal Overflow)
     admin_html = f"""
-    <div style="font-family: Arial, sans-serif; background-color: #09090B; color: #F4F4F5; padding: 28px; border-radius: 12px; border: 1px solid #27272A; max-width: 600px;">
-      <div style="display: inline-block; background-color: rgba(132, 204, 22, 0.15); color: #A3E635; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: bold; letter-spacing: 0.5px;">
-        NEW STRATEGY CALL BOOKED
-      </div>
-      <h2 style="margin: 16px 0 8px; color: #FFFFFF;">Strategy Demo Request — StarEleven AI</h2>
-      <p style="color: #A1A1AA; font-size: 14px; margin-bottom: 20px;">
-        A prospect has locked a time slot from the StarEleven AI landing page.
-      </p>
-      <table style="width: 100%; border-collapse: collapse; background-color: #18181B; border-radius: 8px; overflow: hidden;">
+    <!DOCTYPE html>
+    <html>
+    <body style="margin: 0; padding: 0; background-color: #09090B; font-family: Arial, sans-serif; color: #F4F4F5;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #09090B; padding: 16px 10px;">
         <tr>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A1A1AA; font-size: 13px;">Client Name</td>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #FFFFFF; font-weight: bold; font-size: 13px;">{payload.full_name}</td>
-        </tr>
-        <tr>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A1A1AA; font-size: 13px;">Work Email</td>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A3E635; font-weight: bold; font-size: 13px;">{payload.email}</td>
-        </tr>
-        <tr>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A1A1AA; font-size: 13px;">Company / Agency</td>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #FFFFFF; font-size: 13px;">{company_display} ({payload.industry})</td>
-        </tr>
-        <tr>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A1A1AA; font-size: 13px;">Scheduled Date</td>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #FFFFFF; font-weight: bold; font-size: 13px;">{formatted_date}</td>
-        </tr>
-        <tr>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A1A1AA; font-size: 13px;">Locked Time Slot</td>
-          <td style="padding: 12px 16px; border-bottom: 1px solid #27272A; color: #A3E635; font-weight: bold; font-size: 14px;">{payload.time_slot} (PKT / UTC+5)</td>
-        </tr>
-        <tr>
-          <td style="padding: 12px 16px; color: #A1A1AA; font-size: 13px;">Project Notes</td>
-          <td style="padding: 12px 16px; color: #E4E4E7; font-size: 13px;">{notes_display}</td>
+          <td align="center">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; table-layout: fixed; background-color: #121215; border: 1px solid #27272A; border-radius: 14px; overflow: hidden;">
+              <tr>
+                <td style="height: 4px; background-color: #84CC16;"></td>
+              </tr>
+              <tr>
+                <td style="padding: 22px 20px;">
+                  <div style="display: inline-block; background-color: rgba(132, 204, 22, 0.15); border: 1px solid rgba(132, 204, 22, 0.35); color: #A3E635; padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px;">
+                    NEW STRATEGY CALL BOOKED
+                  </div>
+                  <h2 style="margin: 14px 0 6px; color: #FFFFFF; font-size: 20px; line-height: 1.3;">
+                    Strategy Demo Request — StarEleven AI
+                  </h2>
+                  <p style="color: #A1A1AA; font-size: 13px; line-height: 1.5; margin: 0 0 18px;">
+                    A prospect has locked a time slot from the StarEleven AI landing page.
+                  </p>
+
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="table-layout: fixed; background-color: #18181B; border: 1px solid #27272A; border-radius: 10px; overflow: hidden;">
+                    <tr>
+                      <td style="padding: 12px 14px; border-bottom: 1px solid #27272A;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #A1A1AA;">Client Name</div>
+                        <div style="margin-top: 3px; font-size: 14px; font-weight: bold; color: #FFFFFF; word-break: break-word;">{payload.full_name}</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 12px 14px; border-bottom: 1px solid #27272A;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #A1A1AA;">Work Email</div>
+                        <div style="margin-top: 3px; font-size: 14px; font-weight: bold; color: #A3E635; word-break: break-all;">{payload.email}</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 12px 14px; border-bottom: 1px solid #27272A;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #A1A1AA;">Company / Industry</div>
+                        <div style="margin-top: 3px; font-size: 14px; color: #FFFFFF; word-break: break-word;">{company_display} ({payload.industry})</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 12px 14px; border-bottom: 1px solid #27272A;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #A1A1AA;">Scheduled Date</div>
+                        <div style="margin-top: 3px; font-size: 14px; font-weight: bold; color: #FFFFFF;">{formatted_date}</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 12px 14px; border-bottom: 1px solid #27272A;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #A1A1AA;">Locked Time Slot</div>
+                        <div style="margin-top: 3px; font-size: 14px; font-weight: bold; color: #A3E635;">{payload.time_slot} (PKT / UTC+5)</div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 12px 14px;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #A1A1AA;">Project Notes</div>
+                        <div style="margin-top: 3px; font-size: 13px; color: #E4E4E7; line-height: 1.5; word-break: break-word;">{notes_display}</div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
         </tr>
       </table>
-    </div>
+    </body>
+    </html>
     """
 
     for admin_email in admin_emails:
@@ -172,23 +206,46 @@ def _notify_admin_and_client(payload: CreateBookingRequest) -> None:
             admin_html,
         )
 
+    # 2. Mobile-Responsive Client Confirmation Email
     client_html = f"""
-    <div style="font-family: Arial, sans-serif; background-color: #09090B; color: #F4F4F5; padding: 28px; border-radius: 12px; border: 1px solid #27272A; max-width: 600px;">
-      <div style="display: inline-block; background-color: rgba(132, 204, 22, 0.15); color: #A3E635; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: bold;">
-        BOOKING CONFIRMED
-      </div>
-      <h2 style="margin: 16px 0 8px; color: #FFFFFF;">Your StarEleven AI Strategy Call is Locked</h2>
-      <p style="color: #A1A1AA; font-size: 14px; line-height: 1.6;">
-        Hi <strong style="color: #FFFFFF;">{payload.full_name}</strong>, thank you for scheduling a session with StarEleven AI. Your time slot has been reserved exclusively for you:
-      </p>
-      <div style="background-color: #18181B; border: 1px solid #27272A; border-radius: 10px; padding: 16px; margin: 18px 0;">
-        <p style="margin: 0 0 6px; font-size: 13px; color: #A1A1AA;">Date: <strong style="color: #FFFFFF;">{formatted_date}</strong></p>
-        <p style="margin: 0; font-size: 14px; color: #A1A1AA;">Time Slot: <strong style="color: #A3E635;">{payload.time_slot} (PKT / UTC+5)</strong></p>
-      </div>
-      <p style="color: #A1A1AA; font-size: 13px; line-height: 1.5;">
-        Our solutions architect will send your meeting link ahead of the session. Reply directly to this email if you need to reschedule.
-      </p>
-    </div>
+    <!DOCTYPE html>
+    <html>
+    <body style="margin: 0; padding: 0; background-color: #09090B; font-family: Arial, sans-serif; color: #F4F4F5;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #09090B; padding: 16px 10px;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; table-layout: fixed; background-color: #121215; border: 1px solid #27272A; border-radius: 14px; overflow: hidden;">
+              <tr>
+                <td style="height: 4px; background-color: #84CC16;"></td>
+              </tr>
+              <tr>
+                <td style="padding: 22px 20px;">
+                  <div style="display: inline-block; background-color: rgba(132, 204, 22, 0.15); border: 1px solid rgba(132, 204, 22, 0.35); color: #A3E635; padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: bold;">
+                    BOOKING CONFIRMED
+                  </div>
+                  <h2 style="margin: 14px 0 8px; color: #FFFFFF; font-size: 20px; line-height: 1.3;">
+                    Your StarEleven AI Strategy Call is Locked
+                  </h2>
+                  <p style="color: #A1A1AA; font-size: 14px; line-height: 1.6; margin: 0 0 16px; word-break: break-word;">
+                    Hi <strong style="color: #FFFFFF;">{payload.full_name}</strong>, thank you for scheduling a session with StarEleven AI. Your time slot has been reserved exclusively for you:
+                  </p>
+                  <div style="background-color: #18181B; border: 1px solid #27272A; border-radius: 10px; padding: 14px; margin: 0 0 16px;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: #A1A1AA;">Date</div>
+                    <div style="font-size: 14px; font-weight: bold; color: #FFFFFF; margin: 2px 0 10px;">{formatted_date}</div>
+                    <div style="font-size: 11px; text-transform: uppercase; color: #A1A1AA;">Time Slot</div>
+                    <div style="font-size: 14px; font-weight: bold; color: #A3E635; margin-top: 2px;">{payload.time_slot} (PKT / UTC+5)</div>
+                  </div>
+                  <p style="color: #A1A1AA; font-size: 13px; line-height: 1.5; margin: 0;">
+                    Our solutions architect will send your meeting link ahead of the session. Reply directly to this email if you need to reschedule.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
     """
 
     _send_smtp_email(

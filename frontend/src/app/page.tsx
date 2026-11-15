@@ -23,7 +23,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090B] text-zinc-100 selection:bg-[#84CC16]/30 selection:text-[#A3E635]">
+    <div className="min-h-screen overflow-x-hidden bg-[#09090B] text-zinc-100 selection:bg-[#84CC16]/30 selection:text-[#A3E635]">
       <Navbar onOpenBookCall={() => handleOpenBookCall()} />
 
       <main>

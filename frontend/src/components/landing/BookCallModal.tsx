@@ -238,15 +238,15 @@ export function BookCallModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-xl rounded-2xl border border-zinc-800 bg-[#18181B] p-6 shadow-2xl sm:p-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-4">
+      <div className="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-zinc-800 bg-[#18181B] p-5 shadow-2xl sm:p-8">
         {/* Top Header */}
-        <div className="flex items-start justify-between border-b border-zinc-800 pb-4">
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-800 pb-4">
           <div>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[#84CC16]/30 bg-[#84CC16]/10 px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-[#A3E635]">
               1-on-1 Architecture Call
             </span>
-            <h3 className="mt-2 text-xl font-bold text-white">
+            <h3 className="mt-2 text-lg font-bold text-white sm:text-xl">
               Book a Strategy &amp; Demo Session
             </h3>
             <p className="mt-1 text-xs text-zinc-400">
@@ -256,7 +256,7 @@ export function BookCallModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-zinc-800 bg-[#09090B] p-2 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
+            className="shrink-0 rounded-lg border border-zinc-800 bg-[#09090B] p-2 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
             aria-label="Close modal"
           >
             <X className="h-4 w-4" />
@@ -281,7 +281,7 @@ export function BookCallModal({
                 {confirmedData.date}
               </span>{" "}
               and sent a confirmation email to{" "}
-              <span className="text-zinc-200">{email}</span>.
+              <span className="break-all text-zinc-200">{email}</span>.
             </p>
             <button
               type="button"
@@ -324,7 +324,7 @@ export function BookCallModal({
                 )}
               </div>
 
-              <div className="mt-2 grid grid-cols-2 gap-2.5">
+              <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {slots.map((slot) => {
                   const isDisabled = Boolean(slot.is_booked || slot.is_passed);
                   const isSelected = selectedSlot === slot.id && !isDisabled;
@@ -360,17 +360,17 @@ export function BookCallModal({
                       </div>
 
                       {slot.is_booked ? (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-rose-400">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-rose-400">
                           <Lock className="h-2.5 w-2.5" />
                           Booked
                         </span>
                       ) : slot.is_passed ? (
-                        <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-zinc-400">
+                        <span className="shrink-0 rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-zinc-400">
                           Passed
                         </span>
                       ) : (
                         <span
-                          className={`rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${
+                          className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${
                             isSelected
                               ? "bg-[#84CC16] text-[#09090B]"
                               : "bg-zinc-800 text-zinc-300"
@@ -473,18 +473,18 @@ export function BookCallModal({
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-zinc-800 bg-[#09090B] px-4 py-2.5 text-xs font-semibold text-zinc-300 transition hover:border-zinc-700 hover:text-white"
+                className="w-full rounded-xl border border-zinc-800 bg-[#09090B] px-4 py-2.5 text-xs font-semibold text-zinc-300 transition hover:border-zinc-700 hover:text-white sm:w-auto"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={submitting || !selectedSlot}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#84CC16] px-5 py-2.5 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#84CC16] px-5 py-2.5 text-xs font-bold text-[#09090B] transition hover:bg-[#A3E635] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {submitting ? "Confirming Slot..." : "Confirm & Lock Time Slot"}
