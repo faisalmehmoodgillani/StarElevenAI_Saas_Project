@@ -1,37 +1,41 @@
-import os
 from langchain_core.tools import tool
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 @tool
-def tavily_web_search(query: str) -> str:
+def duckduckgo_web_search(query: str) -> str:
     """
-    Searches the live web using Tavily API for up-to-date market research,
-    competitor insights, and factual information.
+    Searches the live web for free using DuckDuckGo for up-to-date market research,
+    competitor insights, company details, and factual information.
     """
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key or api_key == "your_tavily_search_api_key":
-        return "Web search unavailable: TAVILY_API_KEY is not configured in environment."
+    clean_query = (query or "").strip()
+    if not clean_query:
+        return "Search query cannot be empty."
 
     try:
-        from tavily import TavilyClient
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
 
-        client = TavilyClient(api_key=api_key)
-        response = client.search(query=query, search_depth="basic", max_results=5)
-        results = response.get("results", [])
+        results = []
+        with DDGS() as ddgs:
+            for item in ddgs.text(clean_query, max_results=5):
+                results.append(item)
 
         if not results:
-            return f"No web results found for query: '{query}'."
+            return f"No live web results found for: '{clean_query}'."
 
-        formatted_results = []
+        formatted = []
         for idx, item in enumerate(results, start=1):
             title = item.get("title", "Untitled")
-            url = item.get("url", "")
-            content = item.get("content", "")
-            formatted_results.append(f"{idx}. {title}\nURL: {url}\nSummary: {content}")
+            href = item.get("href") or item.get("url", "")
+            body = item.get("body") or item.get("snippet", "")
+            formatted.append(f"{idx}. {title}\nURL: {href}\nSummary: {body}")
 
-        return "\n\n".join(formatted_results)
+        return "\n\n".join(formatted)
     except Exception as e:
-        return f"Web search execution failed: {str(e)}"
+        return f"DuckDuckGo search error: {str(e)}"
+
+
+# Backward-compatible alias in case any existing module imports tavily_web_search
+tavily_web_search = duckduckgo_web_search

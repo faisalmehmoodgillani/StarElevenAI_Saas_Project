@@ -96,6 +96,68 @@ class AgentConfig(Base):
 
     workspace = relationship("Workspace", back_populates="agent_configs")
 
+class WorkspaceIntegration(Base):
+    __tablename__ = "workspace_integrations"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "connector_id", name="uq_workspace_connector"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id = Column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    connector_id = Column(String(100), nullable=False)
+    display_name = Column(String(255), nullable=False)
+    auth_type = Column(String(50), nullable=False)
+    encrypted_credentials = Column(Text, nullable=True)
+    encrypted_access_token = Column(Text, nullable=True)
+    encrypted_refresh_token = Column(Text, nullable=True)
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    connected_email = Column(String(255), nullable=True)
+    mcp_url = Column(Text, nullable=True)
+    cached_tools = Column(JSONB, nullable=False, default=list)
+    is_connected = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WorkspaceAgent(Base):
+    __tablename__ = "workspace_agents"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "slug", name="uq_workspace_agent_slug"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id = Column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), nullable=False)
+    role_title = Column(String(255), nullable=False, default="Specialist Agent")
+    industry = Column(String(100), nullable=False, default="agency")
+    skill_template_id = Column(String(100), nullable=True)
+    system_prompt = Column(Text, nullable=False)
+    bound_tools = Column(JSONB, nullable=False, default=list)
+    hitl_enabled = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatThreadScope(Base):
+    __tablename__ = "chat_thread_scopes"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "thread_id", name="uq_workspace_thread_scope"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id = Column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id = Column(String(255), nullable=False)
+    pinned_agent_ids = Column(JSONB, nullable=False, default=list)
+    pinned_tool_ids = Column(JSONB, nullable=False, default=list)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 
 
 
@@ -212,3 +274,58 @@ class AgentConfig(Base):
 # );
 
 # CREATE INDEX IF NOT EXISTS idx_call_bookings_date ON call_bookings (booking_date);
+
+
+# -- 1. Per-Workspace Encrypted Tool, Google OAuth & MCP Connectors Vault
+# CREATE TABLE IF NOT EXISTS workspace_integrations (
+#     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+#     connector_id VARCHAR(100) NOT NULL,          -- e.g., google_workspace, tavily_search, slack_webhook, custom_mcp
+#     display_name VARCHAR(255) NOT NULL,
+#     auth_type VARCHAR(50) NOT NULL,              -- free_native | oauth2_google | api_key | mcp_remote
+#     encrypted_credentials TEXT NULL,             -- AES-256 encrypted JSON (API keys, headers, tokens)
+#     encrypted_access_token TEXT NULL,            -- AES-256 encrypted OAuth access token
+#     encrypted_refresh_token TEXT NULL,           -- AES-256 encrypted OAuth refresh token
+#     token_expires_at TIMESTAMPTZ NULL,
+#     connected_email VARCHAR(255) NULL,           -- e.g., synced Gmail address
+#     mcp_url TEXT NULL,                           -- Remote MCP Server HTTP/SSE endpoint
+#     cached_tools JSONB NOT NULL DEFAULT '[]'::jsonb,
+#     is_connected BOOLEAN NOT NULL DEFAULT TRUE,
+#     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     CONSTRAINT uq_workspace_connector UNIQUE (workspace_id, connector_id)
+# );
+
+# CREATE INDEX IF NOT EXISTS idx_ws_integrations_wid ON workspace_integrations (workspace_id);
+
+# -- 2. User-Created & Industry-Skill Deployed Agents (Starts EMPTY = 0 agents on signup)
+# CREATE TABLE IF NOT EXISTS workspace_agents (
+#     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+#     name VARCHAR(255) NOT NULL,
+#     slug VARCHAR(255) NOT NULL,
+#     role_title VARCHAR(255) NOT NULL DEFAULT 'Specialist Agent',
+#     industry VARCHAR(100) NOT NULL DEFAULT 'agency',
+#     skill_template_id VARCHAR(100) NULL,         -- Linked Industry Skill preset if deployed from template
+#     system_prompt TEXT NOT NULL,
+#     bound_tools JSONB NOT NULL DEFAULT '[]'::jsonb, -- Verified list of tool/connector IDs bound to this agent
+#     hitl_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+#     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+#     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     CONSTRAINT uq_workspace_agent_slug UNIQUE (workspace_id, slug)
+# );
+
+# CREATE INDEX IF NOT EXISTS idx_ws_agents_wid ON workspace_agents (workspace_id);
+
+# -- 3. Per-Chat Scoped Execution Lock (Max 3 pinned agents/tools per chat thread)
+# CREATE TABLE IF NOT EXISTS chat_thread_scopes (
+#     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+#     thread_id VARCHAR(255) NOT NULL,
+#     pinned_agent_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+#     pinned_tool_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+#     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     CONSTRAINT uq_workspace_thread_scope UNIQUE (workspace_id, thread_id)
+# );
+
+# CREATE INDEX IF NOT EXISTS idx_chat_thread_scopes_lookup ON chat_thread_scopes (workspace_id, thread_id);
